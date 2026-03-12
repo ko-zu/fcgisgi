@@ -32,10 +32,14 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
             self.adapter.handle_data(data)
 
     def eof_received(self):
+        if self.adapter:
+            self.adapter.close_all()
         self.adapter = None
         return False
 
     def connection_lost(self, exc):
+        if self.adapter:
+            self.adapter.close_all()
         self.adapter = None
 
 async def run_wsgi_server(wsgi_app: Callable, 
