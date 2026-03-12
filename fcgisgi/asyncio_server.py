@@ -22,6 +22,11 @@ class FastCGIProtocol(asyncio.Protocol):
         if self.adapter:
             self.adapter.handle_data(data)
 
+    def eof_received(self):
+        # We received EOF from the other end. Returning False will close the transport.
+        self.adapter = None
+        return False
+
     def connection_lost(self, exc):
         self.adapter = None
 
