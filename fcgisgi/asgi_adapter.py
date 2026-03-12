@@ -28,6 +28,7 @@ class ASGIAdapter:
                 "input_queue": asyncio.Queue(),
                 "task": None,
                 "scope": None,
+                "aborted": False,
             }
         
         elif isinstance(event, ParamsReceived):
@@ -39,26 +40,39 @@ class ASGIAdapter:
         elif isinstance(event, StdinReceived):
             req = self._requests.get(event.request_id)
             if req:
-                asyncio.create_task(req["input_queue"].put({
+                req["input_queue"].put_nowait({
                     "type": "http.request",
                     "body": event.data,
                     "more_body": True,
-                }))
+                })
         
         elif isinstance(event, EndOfStdin):
             req = self._requests.get(event.request_id)
             if req:
-                asyncio.create_task(req["input_queue"].put({
+                req["input_queue"].put_nowait({
                     "type": "http.request",
                     "body": b"",
                     "more_body": False,
-                }))
+                })
         
         elif isinstance(event, AbortRequest):
-            req = self._requests.get(event.request_id)
-            if req and req["task"]:
+            self._abort_request(event.request_id)
+
+    def _abort_request(self, request_id: int):
+        req = self._requests.get(request_id)
+        if req and not req["aborted"]:
+            req["aborted"] = True
+            # Send disconnect to the application
+            req["input_queue"].put_nowait({"type": "http.disconnect"})
+            # Also cancel the task to ensure it stops if it's waiting on something else
+            if req["task"]:
                 req["task"].cancel()
-            self._requests.pop(event.request_id, None)
+
+    def close_all(self):
+        """Abort all active requests. Call this when connection is lost."""
+        # Use a list of keys to avoid modification during iteration issues
+        for request_id in list(self._requests.keys()):
+            self._abort_request(request_id)
 
     def _build_scope(self, request_id: int, params: Dict[bytes, bytes]) -> Dict[str, Any]:
         p = {k.decode('latin-1'): v.decode('latin-1') for k, v in params.items()}
@@ -99,27 +113,37 @@ class ASGIAdapter:
             return await req["input_queue"].get()
 
         async def send(message):
-            if message["type"] == "http.response.start":
-                status = message["status"]
-                headers = message.get("headers", [])
-                res = [f"Status: {status}\r\n".encode('latin-1')]
-                for name, value in headers:
-                    res.append(name + b": " + value + b"\r\n")
-                res.append(b"\r\n")
-                self.send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
-            
-            elif message["type"] == "http.response.body":
-                body = message.get("body", b"")
-                if body:
-                    self.send_func(self.fcgi.send_stdout(request_id, body))
-                if not message.get("more_body", False):
-                    self.send_func(self.fcgi.send_stdout(request_id, b"")) # EOF
-                    self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
+            if req["aborted"]:
+                return
+
+            try:
+                if message["type"] == "http.response.start":
+                    status = message["status"]
+                    headers = message.get("headers", [])
+                    res = [f"Status: {status}\r\n".encode('latin-1')]
+                    for name, value in headers:
+                        res.append(name + b": " + value + b"\r\n")
+                    res.append(b"\r\n")
+                    self.send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
+                
+                elif message["type"] == "http.response.body":
+                    body = message.get("body", b"")
+                    if body:
+                        self.send_func(self.fcgi.send_stdout(request_id, body))
+                    if not message.get("more_body", False):
+                        self.send_func(self.fcgi.send_stdout(request_id, b"")) # EOF
+                        self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
+            except Exception:
+                # Connection might be lost during send
+                self._abort_request(request_id)
 
         try:
             await self.app(req["scope"], receive, send)
-        except Exception as e:
-            # Handle error
+        except asyncio.CancelledError:
+            # Task was cancelled due to abort/disconnect
+            pass
+        except Exception:
+            # Handle other errors
             pass
         finally:
             self._requests.pop(request_id, None)

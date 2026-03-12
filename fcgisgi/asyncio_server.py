@@ -24,10 +24,14 @@ class FastCGIProtocol(asyncio.Protocol):
 
     def eof_received(self):
         # We received EOF from the other end. Returning False will close the transport.
+        if self.adapter:
+            self.adapter.close_all()
         self.adapter = None
         return False
 
     def connection_lost(self, exc):
+        if self.adapter:
+            self.adapter.close_all()
         self.adapter = None
 
 async def run_server(asgi_app: Callable, bind_address: Union[str, Tuple[str, int], None] = None):
