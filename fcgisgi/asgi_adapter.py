@@ -118,6 +118,7 @@ class ASGIAdapter:
 
             try:
                 if message["type"] == "http.response.start":
+                    req["response_started"] = True
                     status = message["status"]
                     headers = message.get("headers", [])
                     res = [f"Status: {status}\r\n".encode('latin-1')]
@@ -143,7 +144,19 @@ class ASGIAdapter:
             # Task was cancelled due to abort/disconnect
             pass
         except Exception:
-            # Handle other errors
-            pass
+            # Handle other errors - send 500 if not started
+            if not req.get("response_started", False) and not req["aborted"]:
+                try:
+                    await send({
+                        "type": "http.response.start",
+                        "status": 500,
+                        "headers": [(b"content-type", b"text/plain")],
+                    })
+                    await send({
+                        "type": "http.response.body",
+                        "body": b"Internal Server Error",
+                    })
+                except Exception:
+                    pass
         finally:
             self._requests.pop(request_id, None)

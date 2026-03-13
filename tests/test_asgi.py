@@ -46,5 +46,27 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"content-type: text/plain", self.output)
         self.assertIn(b"Hello ASGI", self.output)
 
+    async def test_asgi_error(self):
+        async def app(scope, receive, send):
+            raise Exception("App crashed")
+
+        adapter = ASGIAdapter(app, self.send_func)
+        
+        # Start request
+        content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
+        adapter.handle_data(header + content)
+        
+        # Params
+        params_content = b"\x0b\x01SCRIPT_NAME\x00"
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_content), 0)
+        header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
+        adapter.handle_data(header + params_content + header_eof)
+        
+        await asyncio.sleep(0.1)
+        
+        self.assertIn(b"Status: 500", self.output)
+        self.assertIn(b"Internal Server Error", self.output)
+
 if __name__ == "__main__":
     unittest.main()

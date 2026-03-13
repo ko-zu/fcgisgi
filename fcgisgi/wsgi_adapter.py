@@ -167,7 +167,12 @@ class WSGIAdapter:
         except WSGIAbortError:
             pass
         except Exception:
-            pass
+            if not req["response_started"] and not req["aborted"]:
+                try:
+                    start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+                    self._write(req, b"Internal Server Error")
+                except Exception:
+                    pass
         finally:
             # WSGI spec requirement: always call close() if it exists
             if hasattr(result, 'close'):
