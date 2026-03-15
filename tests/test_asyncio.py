@@ -30,6 +30,7 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         transport.write.side_effect = lambda data: output.extend(data)
 
         adapter = ASGIAdapter(app)
+        await adapter.startup()
         protocol = FastCGIProtocol(adapter)
         protocol.connection_made(transport)
 
@@ -51,6 +52,7 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         # Verify that data was written to the transport
         self.assertIn(b"Status: 200", output)
         self.assertIn(b"OK", output)
+        await adapter.shutdown()
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,13 +2,13 @@ import asyncio
 from typing import Callable, Dict, Any, List, Optional
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived, 
-    EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE
+    EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
+    FCGI_OVERLOADED
 )
 
 class ASGIAdapter:
     def __init__(self, app: Callable, send_func: Optional[Callable[[bytes], None]] = None):
         self.app = app
-        # Single send_func is now optional as we pass it per-data
         self._default_send_func = send_func
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, Dict[str, Any]] = {}
@@ -18,6 +18,8 @@ class ASGIAdapter:
         self._lifespan_task: Optional[asyncio.Task] = None
         self._startup_event = asyncio.Event()
         self._shutdown_event = asyncio.Event()
+        self._startup_complete = False
+        self._shutdown_started = False
 
     async def startup(self, timeout: Optional[float] = None):
         self._lifespan_queue = asyncio.Queue()
@@ -28,30 +30,39 @@ class ASGIAdapter:
                 await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
             else:
                 await self._startup_event.wait()
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            # If startup fails/times out, we should probably stop the lifespan task
             pass
+        self._startup_complete = True
 
     async def shutdown(self, timeout: Optional[float] = None):
+        self._shutdown_started = True
         if self._lifespan_queue:
-            await self._lifespan_queue.put({"type": "lifespan.shutdown"})
             try:
+                await self._lifespan_queue.put({"type": "lifespan.shutdown"})
                 if timeout is not None:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=timeout)
                 else:
                     await self._shutdown_event.wait()
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
+        
         if self._lifespan_task:
             self._lifespan_task.cancel()
             try:
                 await self._lifespan_task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, Exception):
                 pass
+            self._lifespan_task = None
 
     async def _run_lifespan(self):
         scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.0"}}
         async def receive():
-            return await self._lifespan_queue.get()
+            try:
+                return await self._lifespan_queue.get()
+            except asyncio.CancelledError:
+                # Return a dummy shutdown message or re-raise
+                return {"type": "lifespan.shutdown"}
         async def send(message):
             if message["type"] == "lifespan.startup.complete":
                 self._startup_event.set()
@@ -63,14 +74,13 @@ class ASGIAdapter:
         try:
             await self.app(scope, receive, send)
         except Exception:
+            pass
+        finally:
             self._startup_event.set()
             self._shutdown_event.set()
 
     def handle_data(self, data: bytes, send_func: Optional[Callable[[bytes], None]] = None):
         events = self.fcgi.feed_data(data)
-        # We need to know which connection (send_func) produced these events
-        # In FastCGI, one connection = one socket, so all events in this call
-        # belong to the same connection.
         for event in events:
             self.handle_event(event, send_func or self._default_send_func)
 
@@ -80,6 +90,13 @@ class ASGIAdapter:
                 send_func(self.fcgi.send_end_request(event.request_id, 0, 3))
                 return
             
+            # If shutdown started, reject new requests
+            # If startup not complete, we could either buffer or reject. 
+            # Rejecting with OVERLOADED is common for simple implementations.
+            if self._shutdown_started or not self._startup_complete:
+                send_func(self.fcgi.send_end_request(event.request_id, 0, FCGI_OVERLOADED))
+                return
+
             self._requests[event.request_id] = {
                 "id": event.request_id,
                 "input_queue": asyncio.Queue(),

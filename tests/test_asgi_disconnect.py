@@ -14,6 +14,15 @@ class TestASGIDisconnect(unittest.IsolatedAsyncioTestCase):
 
         async def app(scope, receive, send):
             nonlocal disconnected, task_cancelled
+            if scope['type'] == 'lifespan':
+                while True:
+                    msg = await receive()
+                    if msg['type'] == 'lifespan.startup':
+                        await send({'type': 'lifespan.startup.complete'})
+                    elif msg['type'] == 'lifespan.shutdown':
+                        await send({'type': 'lifespan.shutdown.complete'})
+                        return
+            
             try:
                 while True:
                     message = await receive()
@@ -25,6 +34,7 @@ class TestASGIDisconnect(unittest.IsolatedAsyncioTestCase):
                 raise
 
         adapter = ASGIAdapter(app, lambda d: None)
+        await adapter.startup()
         
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -47,6 +57,7 @@ class TestASGIDisconnect(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         
         self.assertTrue(disconnected or task_cancelled, "ASGI app did not receive disconnect or wasn't cancelled")
+        await adapter.shutdown()
 
 if __name__ == "__main__":
     unittest.main()
