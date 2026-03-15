@@ -6,21 +6,66 @@ from .sansio import (
 )
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None]):
+    def __init__(self, app: Callable, send_func: Optional[Callable[[bytes], None]] = None):
         self.app = app
-        self.send_func = send_func
+        # Single send_func is now optional as we pass it per-data
+        self._default_send_func = send_func
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, Dict[str, Any]] = {}
+        
+        # Lifespan state
+        self._lifespan_queue: Optional[asyncio.Queue] = None
+        self._lifespan_task: Optional[asyncio.Task] = None
+        self._startup_event = asyncio.Event()
+        self._shutdown_event = asyncio.Event()
 
-    def handle_data(self, data: bytes):
+    async def startup(self):
+        self._lifespan_queue = asyncio.Queue()
+        self._lifespan_task = asyncio.create_task(self._run_lifespan())
+        await self._lifespan_queue.put({"type": "lifespan.startup"})
+        await self._startup_event.wait()
+
+    async def shutdown(self):
+        if self._lifespan_queue:
+            await self._lifespan_queue.put({"type": "lifespan.shutdown"})
+            await self._shutdown_event.wait()
+        if self._lifespan_task:
+            self._lifespan_task.cancel()
+            try:
+                await self._lifespan_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _run_lifespan(self):
+        scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.0"}}
+        async def receive():
+            return await self._lifespan_queue.get()
+        async def send(message):
+            if message["type"] == "lifespan.startup.complete":
+                self._startup_event.set()
+            elif message["type"] == "lifespan.shutdown.complete":
+                self._shutdown_event.set()
+            elif message["type"] in ("lifespan.startup.failed", "lifespan.shutdown.failed"):
+                self._startup_event.set()
+                self._shutdown_event.set()
+        try:
+            await self.app(scope, receive, send)
+        except Exception:
+            self._startup_event.set()
+            self._shutdown_event.set()
+
+    def handle_data(self, data: bytes, send_func: Optional[Callable[[bytes], None]] = None):
         events = self.fcgi.feed_data(data)
+        # We need to know which connection (send_func) produced these events
+        # In FastCGI, one connection = one socket, so all events in this call
+        # belong to the same connection.
         for event in events:
-            self.handle_event(event)
+            self.handle_event(event, send_func or self._default_send_func)
 
-    def handle_event(self, event: Event):
+    def handle_event(self, event: Event, send_func: Callable[[bytes], None]):
         if isinstance(event, RequestStarted):
             if event.role != FCGI_RESPONDER:
-                self.send_func(self.fcgi.send_end_request(event.request_id, 0, 3))
+                send_func(self.fcgi.send_end_request(event.request_id, 0, 3))
                 return
             
             self._requests[event.request_id] = {
@@ -29,6 +74,7 @@ class ASGIAdapter:
                 "task": None,
                 "scope": None,
                 "aborted": False,
+                "send_func": send_func,
             }
         
         elif isinstance(event, ParamsReceived):
@@ -62,25 +108,21 @@ class ASGIAdapter:
         req = self._requests.get(request_id)
         if req and not req["aborted"]:
             req["aborted"] = True
-            # Send disconnect to the application
             req["input_queue"].put_nowait({"type": "http.disconnect"})
-            # Also cancel the task to ensure it stops if it's waiting on something else
             if req["task"]:
                 req["task"].cancel()
 
-    def close_all(self):
-        """Abort all active requests. Call this when connection is lost."""
-        # Use a list of keys to avoid modification during iteration issues
+    def close_connection(self, send_func: Callable[[bytes], None]):
+        """Abort all active requests for a specific connection."""
         for request_id in list(self._requests.keys()):
-            self._abort_request(request_id)
+            if self._requests[request_id]["send_func"] == send_func:
+                self._abort_request(request_id)
 
     def _build_scope(self, request_id: int, params: Dict[bytes, bytes]) -> Dict[str, Any]:
         p = {k.decode('latin-1'): v.decode('latin-1') for k, v in params.items()}
-        
         method = p.get("REQUEST_METHOD", "GET")
         path = p.get("PATH_INFO", "")
         query_string = p.get("QUERY_STRING", "").encode('latin-1')
-        
         headers = []
         for k, v in params.items():
             k_str = k.decode('latin-1')
@@ -108,6 +150,7 @@ class ASGIAdapter:
 
     async def _run_app(self, req: Dict[str, Any]):
         request_id = req["id"]
+        send_func = req["send_func"]
         
         async def receive():
             return await req["input_queue"].get()
@@ -115,7 +158,6 @@ class ASGIAdapter:
         async def send(message):
             if req["aborted"]:
                 return
-
             try:
                 if message["type"] == "http.response.start":
                     req["response_started"] = True
@@ -125,26 +167,22 @@ class ASGIAdapter:
                     for name, value in headers:
                         res.append(name + b": " + value + b"\r\n")
                     res.append(b"\r\n")
-                    self.send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
-                
+                    send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
                 elif message["type"] == "http.response.body":
                     body = message.get("body", b"")
                     if body:
-                        self.send_func(self.fcgi.send_stdout(request_id, body))
+                        send_func(self.fcgi.send_stdout(request_id, body))
                     if not message.get("more_body", False):
-                        self.send_func(self.fcgi.send_stdout(request_id, b"")) # EOF
-                        self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
+                        send_func(self.fcgi.send_stdout(request_id, b"")) # EOF
+                        send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
             except Exception:
-                # Connection might be lost during send
                 self._abort_request(request_id)
 
         try:
             await self.app(req["scope"], receive, send)
         except asyncio.CancelledError:
-            # Task was cancelled due to abort/disconnect
             pass
         except Exception:
-            # Handle other errors - send 500 if not started
             if not req.get("response_started", False) and not req["aborted"]:
                 try:
                     await send({

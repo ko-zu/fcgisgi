@@ -7,27 +7,30 @@ from fcgisgi.sansio import (
     FCGI_HEADER_FORMAT, FCGI_BEGIN_REQUEST_BODY_FORMAT
 )
 from fcgisgi.asyncio_server import FastCGIProtocol
+from fcgisgi.asgi_adapter import ASGIAdapter
 
 class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_interaction(self):
         # A simple ASGI app that returns OK
         async def app(scope, receive, send):
-            await send({
-                'type': 'http.response.start',
-                'status': 200,
-                'headers': [],
-            })
-            await send({
-                'type': 'http.response.body',
-                'body': b'OK',
-            })
+            if scope['type'] == 'http':
+                await send({
+                    'type': 'http.response.start',
+                    'status': 200,
+                    'headers': [],
+                })
+                await send({
+                    'type': 'http.response.body',
+                    'body': b'OK',
+                })
 
         # Mock transport to capture output
         transport = MagicMock()
         output = bytearray()
         transport.write.side_effect = lambda data: output.extend(data)
 
-        protocol = FastCGIProtocol(app)
+        adapter = ASGIAdapter(app)
+        protocol = FastCGIProtocol(adapter)
         protocol.connection_made(transport)
 
         # Simulate inbound FastCGI data
