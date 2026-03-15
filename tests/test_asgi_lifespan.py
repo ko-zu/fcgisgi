@@ -30,5 +30,23 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
         await adapter.shutdown()
         self.assertTrue(shutdown_called)
 
+    async def test_lifespan_timeout(self):
+        async def slow_app(scope, receive, send):
+            if scope['type'] == 'lifespan':
+                await receive()
+                # Simulate slow startup by not sending complete
+                await asyncio.sleep(0.5)
+
+        adapter = ASGIAdapter(slow_app)
+        
+        start_time = asyncio.get_event_loop().time()
+        # Set a short timeout
+        await adapter.startup(timeout=0.1)
+        end_time = asyncio.get_event_loop().time()
+        
+        # Should return after ~0.1s due to timeout
+        self.assertLess(end_time - start_time, 0.4)
+        self.assertGreaterEqual(end_time - start_time, 0.1)
+
 if __name__ == "__main__":
     unittest.main()

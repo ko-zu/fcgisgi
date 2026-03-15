@@ -19,16 +19,28 @@ class ASGIAdapter:
         self._startup_event = asyncio.Event()
         self._shutdown_event = asyncio.Event()
 
-    async def startup(self):
+    async def startup(self, timeout: Optional[float] = None):
         self._lifespan_queue = asyncio.Queue()
         self._lifespan_task = asyncio.create_task(self._run_lifespan())
         await self._lifespan_queue.put({"type": "lifespan.startup"})
-        await self._startup_event.wait()
+        try:
+            if timeout is not None:
+                await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
+            else:
+                await self._startup_event.wait()
+        except asyncio.TimeoutError:
+            pass
 
-    async def shutdown(self):
+    async def shutdown(self, timeout: Optional[float] = None):
         if self._lifespan_queue:
             await self._lifespan_queue.put({"type": "lifespan.shutdown"})
-            await self._shutdown_event.wait()
+            try:
+                if timeout is not None:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=timeout)
+                else:
+                    await self._shutdown_event.wait()
+            except asyncio.TimeoutError:
+                pass
         if self._lifespan_task:
             self._lifespan_task.cancel()
             try:

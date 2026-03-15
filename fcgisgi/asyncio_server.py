@@ -42,17 +42,19 @@ class FastCGIProtocol(asyncio.Protocol):
         if self.adapter:
             self.adapter.close_connection(self.transport.write)
 
-async def run_server(asgi_app: Callable, bind_address: Union[str, Tuple[str, int], None] = None):
+async def run_server(asgi_app: Callable, 
+                   bind_address: Union[str, Tuple[str, int], None] = None,
+                   startup_timeout: float = 10.0,
+                   shutdown_timeout: float = 10.0):
     """
     Run the FastCGI server using asyncio with Lifespan support.
     """
     loop = asyncio.get_running_loop()
 
     # Shared adapter for all connections to share the same Lifespan
-    # We need to update ASGIAdapter to handle multiple transports
     adapter = ASGIAdapter(asgi_app, None) 
     
-    await adapter.startup()
+    await adapter.startup(timeout=startup_timeout)
 
     def protocol_factory():
         return FastCGIProtocol(adapter)
@@ -71,4 +73,4 @@ async def run_server(asgi_app: Callable, bind_address: Union[str, Tuple[str, int
         try:
             await server.serve_forever()
         finally:
-            await adapter.shutdown()
+            await adapter.shutdown(timeout=shutdown_timeout)
