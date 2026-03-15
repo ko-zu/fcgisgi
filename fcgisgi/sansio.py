@@ -173,6 +173,7 @@ class FastCGIConnection:
         return self._encode_record(FCGI_STDERR, request_id, data)
 
     def send_end_request(self, request_id: int, app_status: int, protocol_status: int) -> bytes:
+
         content = struct.pack(FCGI_END_REQUEST_BODY_FORMAT, app_status, protocol_status)
         return self._encode_record(FCGI_END_REQUEST, request_id, content)
 

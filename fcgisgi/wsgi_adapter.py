@@ -1,4 +1,5 @@
 import io
+import sys
 import threading
 import queue
 import socket
@@ -54,6 +55,30 @@ class WSGIInput(io.RawIOBase):
     def abort(self):
         self._aborted = True
         self._queue.put("ABORT")
+
+class WSGIErrors:
+    """
+    A text stream for wsgi.errors that writes to FastCGI FCGI_STDERR.
+    WSGI spec requires this to be a text stream.
+    """
+    def __init__(self, adapter: 'WSGIAdapter', request_id: int):
+        self.adapter = adapter
+        self.request_id = request_id
+
+    def write(self, data: str):
+        if not isinstance(data, str):
+            raise TypeError("write() argument must be str")
+        # Spec: it is allowed to substitute characters that cannot be rendered.
+        # We use latin-1 or utf-8. Let's use utf-8 for better compatibility with modern apps.
+        encoded = data.encode('utf-8', 'replace')
+        self.adapter.send_func(self.adapter.fcgi.send_stderr(self.request_id, encoded))
+
+    def writelines(self, lines: List[str]):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        pass
 
 class WSGIAdapter:
     def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable = None):
@@ -136,7 +161,7 @@ class WSGIAdapter:
         environ['wsgi.version'] = (1, 0)
         environ['wsgi.url_scheme'] = environ.get('HTTPS', 'off') in ('on', '1') and 'https' or 'http'
         environ['wsgi.input'] = io.BufferedReader(req["stdin"])
-        environ['wsgi.errors'] = io.BytesIO()
+        environ['wsgi.errors'] = WSGIErrors(self, request_id)
         environ['wsgi.multithread'] = True
         environ['wsgi.multiprocess'] = False
         environ['wsgi.run_once'] = False
@@ -184,6 +209,7 @@ class WSGIAdapter:
             if not req["aborted"]:
                 try:
                     self.send_func(self.fcgi.send_stdout(request_id, b""))
+                    self.send_func(self.fcgi.send_stderr(request_id, b"")) # EOF for stderr
                     self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
                 except Exception:
                     pass
