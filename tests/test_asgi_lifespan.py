@@ -49,6 +49,23 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
         self.assertLess(end_time - start_time, 0.4)
         self.assertGreaterEqual(end_time - start_time, 0.1)
 
+    async def test_partial_lifespan_support(self):
+        # App that consumes lifespan events but never responds
+        async def partial_app(scope, receive, send):
+            if scope['type'] == 'lifespan':
+                await receive() # startup
+                # Do nothing, don't send complete
+                return # Task finishes
+
+        adapter = ASGIAdapter(partial_app)
+        
+        # Should not hang even without complete message because task finished
+        await adapter.startup(timeout=0.1)
+        self.assertTrue(adapter._startup_complete)
+        
+        await adapter.shutdown(timeout=0.1)
+        self.assertTrue(adapter._shutdown_started)
+
     async def test_reject_requests_during_lifespan(self):
         async def app(scope, receive, send):
             if scope['type'] == 'lifespan':
