@@ -155,11 +155,6 @@ class Server:
                 except asyncio.TimeoutError:
                     logger.error("WSGI thread pool shutdown timed out")
 
-            # Wait for all remaining tasks
-            current_task = asyncio.current_task()
-            tasks = [t for t in asyncio.all_tasks() if t is not current_task]
-            if tasks:
-                await asyncio.wait(tasks, timeout=shutdown_timeout)
 
     async def _run_lifespan(self):
         scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.0"}}
