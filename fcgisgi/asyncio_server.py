@@ -2,11 +2,14 @@ import asyncio
 import signal
 import socket
 import os
+import logging
 from typing import Callable, Union, Tuple, Optional, Any
 
 from .sansio import FCGI_LISTENSOCK_FILENO
 from .asgi_adapter import ASGIAdapter
 from .wsgi_adapter import WSGIAdapter
+
+logger = logging.getLogger(__name__)
 
 class FastCGIASGIProtocol(asyncio.Protocol):
     """ASGI specific protocol implementation."""
@@ -100,7 +103,7 @@ class Server:
                 timeout = self.kwargs.get('startup_timeout', 10.0)
                 await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
-                pass
+                logger.error("ASGI Lifespan startup timed out")
             self.startup_complete = True
 
         # 2. Setup Signals
@@ -143,14 +146,14 @@ class Server:
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=shutdown_timeout)
                 except asyncio.TimeoutError:
-                    pass
+                    logger.error("ASGI Lifespan shutdown timed out")
                 if self._lifespan_task:
                     self._lifespan_task.cancel()
             elif executor:
                 try:
                     await asyncio.wait_for(asyncio.to_thread(executor.shutdown), timeout=shutdown_timeout)
                 except asyncio.TimeoutError:
-                    pass
+                    logger.error("WSGI thread pool shutdown timed out")
 
             # Wait for all remaining tasks
             current_task = asyncio.current_task()
