@@ -114,7 +114,8 @@ class Server:
         executor = None
         if not self.is_asgi:
             from concurrent.futures import ThreadPoolExecutor
-            executor = ThreadPoolExecutor(max_workers=self.kwargs.get('max_workers'))
+            executor = ThreadPoolExecutor(max_workers=self.kwargs.get('max_workers'),
+                                          thread_name_prefix="wsgi-worker")
 
         def protocol_factory():
             if self.is_asgi:
