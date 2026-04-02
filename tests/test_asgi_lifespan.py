@@ -21,15 +21,13 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
                         await send({'type': 'lifespan.shutdown.complete'})
                         return
 
-        server = Server(app)
+        server = Server(app, startup_timeout=0.1, shutdown_timeout=0.1)
         
         # Test startup via run (partially) or internal methods
         # To keep it simple, we test the Server's lifespan management
         server.loop = asyncio.get_running_loop()
         server._stop_event = asyncio.Event()
         
-        # Manually trigger the private _run_lifespan for testing if needed,
-        # but better to test through the public interface if possible.
         # Let's simulate a quick run/stop.
         server_task = asyncio.create_task(server.run(("127.0.0.1", 0)))
         await asyncio.sleep(0.1)
@@ -45,12 +43,10 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
                 await receive()
                 await asyncio.sleep(0.5)
 
-        server = Server(slow_app, startup_timeout=0.1)
+        server = Server(slow_app, startup_timeout=0.1, shutdown_timeout=0.1)
         server_task = asyncio.create_task(server.run(("127.0.0.1", 0)))
         
-        start_time = asyncio.get_event_loop().time()
         await asyncio.sleep(0.2)
-        end_time = asyncio.get_event_loop().time()
         
         self.assertTrue(server.startup_complete)
         server.stop()
@@ -75,7 +71,7 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
                         await send({'type': 'lifespan.shutdown.complete'})
                         return
 
-        server = Server(app, shutdown_timeout=0.5)
+        server = Server(app, startup_timeout=0.1, shutdown_timeout=0.3)
         server_task = asyncio.create_task(server.run(("127.0.0.1", 0)))
         await asyncio.sleep(0.1)
         server.stop()
