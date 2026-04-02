@@ -16,18 +16,18 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
 
     async def test_simple_asgi(self):
         async def app(scope, receive, send):
-            await send({
-                'type': 'http.response.start',
-                'status': 200,
-                'headers': [(b'content-type', b'text/plain')],
-            })
-            await send({
-                'type': 'http.response.body',
-                'body': b'Hello ASGI',
-            })
+            if scope['type'] == 'http':
+                await send({
+                    'type': 'http.response.start',
+                    'status': 200,
+                    'headers': [(b'content-type', b'text/plain')],
+                })
+                await send({
+                    'type': 'http.response.body',
+                    'body': b'Hello ASGI',
+                })
 
-        adapter = ASGIAdapter(app, self.send_func)
-        await adapter.startup()
+        adapter = ASGIAdapter(app, self.send_func, startup_complete=True)
         
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -46,14 +46,13 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"Status: 200", self.output)
         self.assertIn(b"content-type: text/plain", self.output)
         self.assertIn(b"Hello ASGI", self.output)
-        await adapter.shutdown()
 
     async def test_asgi_error(self):
         async def app(scope, receive, send):
-            raise Exception("App crashed")
+            if scope['type'] == 'http':
+                raise Exception("App crashed")
 
-        adapter = ASGIAdapter(app, self.send_func)
-        await adapter.startup()
+        adapter = ASGIAdapter(app, self.send_func, startup_complete=True)
         
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -70,7 +69,6 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
         
         self.assertIn(b"Status: 500", self.output)
         self.assertIn(b"Internal Server Error", self.output)
-        await adapter.shutdown()
 
 if __name__ == "__main__":
     unittest.main()

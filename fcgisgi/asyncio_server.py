@@ -1,76 +1,194 @@
 import asyncio
-import sys
-import os
+import signal
 import socket
-from typing import Callable, Union, Tuple, Optional
+import os
+from typing import Callable, Union, Tuple, Optional, Any
 
 from .sansio import FCGI_LISTENSOCK_FILENO
 from .asgi_adapter import ASGIAdapter
+from .wsgi_adapter import WSGIAdapter
 
-class FastCGIProtocol(asyncio.Protocol):
-    def __init__(self, adapter: ASGIAdapter):
-        self.adapter = adapter
+class FastCGIASGIProtocol(asyncio.Protocol):
+    """ASGI specific protocol implementation."""
+    def __init__(self, app: Callable, server: 'Server'):
+        self.app = app
+        self.server = server
+        self.adapter = None
         self.transport = None
 
     def connection_made(self, transport):
         self.transport = transport
-        # We need a way for the adapter to send data back to this specific transport.
-        # However, ASGIAdapter currently takes a single send_func.
-        # To support multiple concurrent connections, we need to route send calls.
-        
-        # We'll monkey-patch a per-connection adapter or use a proxy.
-        # For simplicity in this implementation, we'll create a local send_func
-        # and tell the adapter about it for this connection.
-        # But Wait! The adapter already handles multiple request_ids.
-        # The only thing it needs is a way to map request_id -> transport.
-        pass
+        self.adapter = ASGIAdapter(
+            self.app,
+            self.transport.write,
+            startup_complete=self.server.startup_complete
+        )
 
     def data_received(self, data):
-        # We need to tell the adapter which transport to use for responses to this data
-        # Let's wrap the adapter's send_func or similar.
-        self.adapter.handle_data(data, self.transport.write)
+        if self.adapter:
+            self.adapter.handle_data(data)
 
     def eof_received(self):
         if self.adapter:
-            # We don't want to close ALL requests, just the ones for this connection
-            # But FastCGI connections usually map 1:1 to a socket.
-            # So close_all for this connection is correct.
-            self.adapter.close_connection(self.transport.write)
+            self.adapter.close_all()
         return False
 
     def connection_lost(self, exc):
         if self.adapter:
-            self.adapter.close_connection(self.transport.write)
+            self.adapter.close_all()
 
-async def run_server(asgi_app: Callable, 
-                   bind_address: Union[str, Tuple[str, int], None] = None,
-                   startup_timeout: float = 10.0,
-                   shutdown_timeout: float = 10.0):
-    """
-    Run the FastCGI server using asyncio with Lifespan support.
-    """
-    loop = asyncio.get_running_loop()
+class FastCGIWSGIProtocol(asyncio.Protocol):
+    """WSGI specific protocol implementation."""
+    def __init__(self, app: Callable, executor: Any, server: 'Server'):
+        self.app = app
+        self.executor = executor
+        self.server = server
+        self.adapter = None
+        self.transport = None
+        self.loop = None
 
-    # Shared adapter for all connections to share the same Lifespan
-    adapter = ASGIAdapter(asgi_app, None) 
-    
-    await adapter.startup(timeout=startup_timeout)
+    def connection_made(self, transport):
+        self.transport = transport
+        self.loop = asyncio.get_running_loop()
 
-    def protocol_factory():
-        return FastCGIProtocol(adapter)
+        # Connection-specific thread-safe send function
+        def thread_safe_send(d):
+            self.loop.call_soon_threadsafe(self.transport.write, d)
 
-    if bind_address is None:
-        sock = socket.fromfd(FCGI_LISTENSOCK_FILENO, socket.AF_INET, socket.SOCK_STREAM)
-        server = await loop.create_server(protocol_factory, sock=sock)
-    elif isinstance(bind_address, str):
-        if os.path.exists(bind_address):
-            os.unlink(bind_address)
-        server = await loop.create_server(protocol_factory, path=bind_address)
-    else:
-        server = await loop.create_server(protocol_factory, host=bind_address[0], port=bind_address[1])
+        # Create a new adapter instance per connection
+        self.adapter = WSGIAdapter(
+            self.app,
+            thread_safe_send,
+            lambda target, args: self.loop.run_in_executor(self.executor, target, *args)
+        )
 
-    async with server:
+    def data_received(self, data):
+        if self.adapter:
+            self.adapter.handle_data(data)
+
+    def eof_received(self):
+        if self.adapter:
+            self.adapter.close_all()
+        return False
+
+    def connection_lost(self, exc):
+        if self.adapter:
+            self.adapter.close_all()
+
+class Server:
+    def __init__(self, app: Callable, is_asgi: bool = True, **kwargs):
+        self.app = app
+        self.is_asgi = is_asgi
+        self.kwargs = kwargs
+        self.startup_complete = not is_asgi
+        self._stop_event = None
+        self._lifespan_task = None
+        self._lifespan_queue = None
+        self._startup_event = asyncio.Event()
+        self._shutdown_event = asyncio.Event()
+
+    async def run(self, bind_address: Union[str, Tuple[str, int], None] = None):
+        self.loop = asyncio.get_running_loop()
+        self._stop_event = asyncio.Event()
+
+        # 1. Start Lifespan for ASGI
+        if self.is_asgi:
+            self._lifespan_queue = asyncio.Queue()
+            self._lifespan_task = asyncio.create_task(self._run_lifespan())
+            await self._lifespan_queue.put({"type": "lifespan.startup"})
+            try:
+                timeout = self.kwargs.get('startup_timeout', 10.0)
+                await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                pass
+            self.startup_complete = True
+
+        # 2. Setup Signals
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            self.loop.add_signal_handler(sig, self.stop)
+
+        # 3. Setup Socket and Server
+        executor = None
+        if not self.is_asgi:
+            from concurrent.futures import ThreadPoolExecutor
+            executor = ThreadPoolExecutor(max_workers=self.kwargs.get('max_workers'))
+
+        def protocol_factory():
+            if self.is_asgi:
+                return FastCGIASGIProtocol(self.app, self)
+            else:
+                return FastCGIWSGIProtocol(self.app, executor, self)
+
+        if bind_address is None:
+            sock = socket.fromfd(FCGI_LISTENSOCK_FILENO, socket.AF_INET, socket.SOCK_STREAM)
+            server = await self.loop.create_server(protocol_factory, sock=sock)
+        elif isinstance(bind_address, str):
+            if os.path.exists(bind_address):
+                os.unlink(bind_address)
+            server = await self.loop.create_server(protocol_factory, path=bind_address)
+        else:
+            server = await self.loop.create_server(protocol_factory, host=bind_address[0], port=bind_address[1])
+
         try:
-            await server.serve_forever()
+            async with server:
+                await self._stop_event.wait()
         finally:
-            await adapter.shutdown(timeout=shutdown_timeout)
+            # 4. Graceful Shutdown
+            server.close()
+            await server.wait_closed()
+
+            shutdown_timeout = self.kwargs.get('shutdown_timeout', 10.0)
+            if self.is_asgi:
+                await self._lifespan_queue.put({"type": "lifespan.shutdown"})
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=shutdown_timeout)
+                except asyncio.TimeoutError:
+                    pass
+                if self._lifespan_task:
+                    self._lifespan_task.cancel()
+            elif executor:
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(executor.shutdown), timeout=shutdown_timeout)
+                except asyncio.TimeoutError:
+                    pass
+
+            # Wait for all remaining tasks
+            current_task = asyncio.current_task()
+            tasks = [t for t in asyncio.all_tasks() if t is not current_task]
+            if tasks:
+                await asyncio.wait(tasks, timeout=shutdown_timeout)
+
+    async def _run_lifespan(self):
+        scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.0"}}
+        async def receive():
+            try:
+                return await self._lifespan_queue.get()
+            except asyncio.CancelledError:
+                return {"type": "lifespan.shutdown"}
+        async def send(message):
+            if message["type"] == "lifespan.startup.complete":
+                self._startup_event.set()
+            elif message["type"] == "lifespan.shutdown.complete":
+                self._shutdown_event.set()
+            elif message["type"] in ("lifespan.startup.failed", "lifespan.shutdown.failed"):
+                self._startup_event.set()
+                self._shutdown_event.set()
+        try:
+            await self.app(scope, receive, send)
+        except Exception:
+            pass
+        finally:
+            self._startup_event.set()
+            self._shutdown_event.set()
+
+    def stop(self):
+        if self._stop_event:
+            self._stop_event.set()
+
+async def run_server(app: Callable, bind_address=None, **kwargs):
+    server = Server(app, is_asgi=True, **kwargs)
+    await server.run(bind_address)
+
+async def run_wsgi_server(app: Callable, bind_address=None, **kwargs):
+    server = Server(app, is_asgi=False, **kwargs)
+    await server.run(bind_address)

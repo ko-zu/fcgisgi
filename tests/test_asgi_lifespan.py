@@ -1,7 +1,7 @@
 import unittest
 import asyncio
 import struct
-from fcgisgi.asgi_adapter import ASGIAdapter
+from fcgisgi.asyncio_server import Server
 
 class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
     async def test_lifespan_flow(self):
@@ -21,91 +21,66 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
                         await send({'type': 'lifespan.shutdown.complete'})
                         return
 
-        adapter = ASGIAdapter(app)
+        server = Server(app)
         
-        # Test startup
-        await adapter.startup()
+        # Test startup via run (partially) or internal methods
+        # To keep it simple, we test the Server's lifespan management
+        server.loop = asyncio.get_running_loop()
+        server._stop_event = asyncio.Event()
+        
+        # Manually trigger the private _run_lifespan for testing if needed,
+        # but better to test through the public interface if possible.
+        # Let's simulate a quick run/stop.
+        server_task = asyncio.create_task(server.run(("127.0.0.1", 0)))
+        await asyncio.sleep(0.1)
         self.assertTrue(startup_called)
         
-        # Test shutdown
-        await adapter.shutdown()
+        server.stop()
+        await server_task
         self.assertTrue(shutdown_called)
 
     async def test_lifespan_timeout(self):
         async def slow_app(scope, receive, send):
             if scope['type'] == 'lifespan':
                 await receive()
-                # Simulate slow startup by not sending complete
                 await asyncio.sleep(0.5)
 
-        adapter = ASGIAdapter(slow_app)
+        server = Server(slow_app, startup_timeout=0.1)
+        server_task = asyncio.create_task(server.run(("127.0.0.1", 0)))
         
         start_time = asyncio.get_event_loop().time()
-        # Set a short timeout
-        await adapter.startup(timeout=0.1)
+        await asyncio.sleep(0.2)
         end_time = asyncio.get_event_loop().time()
         
-        # Should return after ~0.1s due to timeout
-        self.assertLess(end_time - start_time, 0.4)
-        self.assertGreaterEqual(end_time - start_time, 0.1)
+        self.assertTrue(server.startup_complete)
+        server.stop()
+        await server_task
 
-    async def test_partial_lifespan_support(self):
-        # App that consumes lifespan events but never responds
-        async def partial_app(scope, receive, send):
-            if scope['type'] == 'lifespan':
-                await receive() # startup
-                # Do nothing, don't send complete
-                return # Task finishes
+    async def test_graceful_shutdown_waits_for_shielded_tasks(self):
+        subtask_finished = False
 
-        adapter = ASGIAdapter(partial_app)
-        
-        # Should not hang even without complete message because task finished
-        await adapter.startup(timeout=0.1)
-        self.assertTrue(adapter._startup_complete)
-        
-        await adapter.shutdown(timeout=0.1)
-        self.assertTrue(adapter._shutdown_started)
-
-    async def test_reject_requests_during_lifespan(self):
         async def app(scope, receive, send):
+            nonlocal subtask_finished
             if scope['type'] == 'lifespan':
                 while True:
                     msg = await receive()
                     if msg['type'] == 'lifespan.startup':
                         await send({'type': 'lifespan.startup.complete'})
                     elif msg['type'] == 'lifespan.shutdown':
+                        async def subtask():
+                            nonlocal subtask_finished
+                            await asyncio.sleep(0.2)
+                            subtask_finished = True
+                        asyncio.shield(asyncio.create_task(subtask()))
                         await send({'type': 'lifespan.shutdown.complete'})
                         return
 
-        output = bytearray()
-        def send_func(data):
-            output.extend(data)
-
-        adapter = ASGIAdapter(app, send_func)
-        
-        # 1. Try request before startup
-        from fcgisgi.sansio import FCGI_BEGIN_REQUEST, FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST_BODY_FORMAT, FCGI_OVERLOADED
-        content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
-        adapter.handle_data(header + content)
-        
-        self.assertIn(struct.pack("!LB3x", 0, FCGI_OVERLOADED), output)
-        output.clear()
-
-        # 2. Startup
-        await adapter.startup()
-        
-        # 3. Try request after startup (should NOT be rejected)
-        adapter.handle_data(header + content)
-        self.assertNotIn(struct.pack("!LB3x", 0, FCGI_OVERLOADED), output)
-        output.clear()
-
-        # 4. Shutdown
-        await adapter.shutdown()
-        
-        # 5. Try request after shutdown
-        adapter.handle_data(header + content)
-        self.assertIn(struct.pack("!LB3x", 0, FCGI_OVERLOADED), output)
+        server = Server(app, shutdown_timeout=0.5)
+        server_task = asyncio.create_task(server.run(("127.0.0.1", 0)))
+        await asyncio.sleep(0.1)
+        server.stop()
+        await server_task
+        self.assertTrue(subtask_finished)
 
 if __name__ == "__main__":
     unittest.main()

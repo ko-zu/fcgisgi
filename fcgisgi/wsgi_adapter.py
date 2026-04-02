@@ -3,11 +3,16 @@ import sys
 import threading
 import queue
 import socket
+import asyncio
+import logging
 from typing import Callable, Dict, Any, List, Optional
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived, 
-    EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE
+    EndOfStdin, AbortRequest, Event, GetValues, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
+    FCGI_MAX_CONNS, FCGI_MAX_REQS, FCGI_MPXS_CONNS
 )
+
+logger = logging.getLogger(__name__)
 
 class WSGIAbortError(Exception):
     """Exception raised to interrupt the WSGI application when a request is aborted."""
@@ -25,7 +30,6 @@ class WSGIInput(io.RawIOBase):
             raise WSGIAbortError("Request aborted")
 
         if not self._buffer and not self._eof:
-            # Block until data is available or EOF/Abort is signaled
             data = self._queue.get()
             if data is None:
                 self._eof = True
@@ -57,10 +61,6 @@ class WSGIInput(io.RawIOBase):
         self._queue.put("ABORT")
 
 class WSGIErrors:
-    """
-    A text stream for wsgi.errors that writes to FastCGI FCGI_STDERR.
-    WSGI spec requires this to be a text stream.
-    """
     def __init__(self, adapter: 'WSGIAdapter', request_id: int):
         self.adapter = adapter
         self.request_id = request_id
@@ -68,8 +68,6 @@ class WSGIErrors:
     def write(self, data: str):
         if not isinstance(data, str):
             raise TypeError("write() argument must be str")
-        # Spec: it is allowed to substitute characters that cannot be rendered.
-        # We use latin-1 or utf-8. Let's use utf-8 for better compatibility with modern apps.
         encoded = data.encode('utf-8', 'replace')
         self.adapter.send_func(self.adapter.fcgi.send_stderr(self.request_id, encoded))
 
@@ -87,7 +85,10 @@ class WSGIAdapter:
         self.spawn_func = spawn_func or self._default_spawn
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, Dict[str, Any]] = {}
-        self._lock = threading.Lock()
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = None
 
     def _default_spawn(self, target, args):
         t = threading.Thread(target=target, args=args)
@@ -95,7 +96,7 @@ class WSGIAdapter:
         t.start()
         return t
 
-    def handle_data(self, data: bytes):
+    def handle_data(self, data: bytes, send_func: Any = None):
         events = self.fcgi.feed_data(data)
         for event in events:
             self.handle_event(event)
@@ -107,52 +108,64 @@ class WSGIAdapter:
                 return
             
             stdin = WSGIInput()
-            with self._lock:
-                self._requests[event.request_id] = {
-                    "id": event.request_id,
-                    "params": {},
-                    "stdin": stdin,
-                    "thread": None,
-                    "headers_set": False,
-                    "response_started": False,
-                    "aborted": False,
-                }
+            self._requests[event.request_id] = {
+                "id": event.request_id,
+                "params": {},
+                "stdin": stdin,
+                "thread": None,
+                "headers_set": False,
+                "response_started": False,
+                "aborted": False,
+            }
         
         elif isinstance(event, ParamsReceived):
-            with self._lock:
-                req = self._requests.get(event.request_id)
+            req = self._requests.get(event.request_id)
             if req:
                 req["params"] = {k.decode('latin-1'): v.decode('latin-1') for k, v in event.params.items()}
                 req["thread"] = self.spawn_func(self._run_app, (req,))
         
         elif isinstance(event, StdinReceived):
-            with self._lock:
-                req = self._requests.get(event.request_id)
+            req = self._requests.get(event.request_id)
             if req:
-                req["stdin"].put(event.data)
+                if self.loop:
+                    self.loop.run_in_executor(None, req["stdin"].put, event.data)
+                else:
+                    req["stdin"].put(event.data)
         
         elif isinstance(event, EndOfStdin):
-            with self._lock:
-                req = self._requests.get(event.request_id)
+            req = self._requests.get(event.request_id)
             if req:
-                req["stdin"].put_eof()
+                if self.loop:
+                    self.loop.run_in_executor(None, req["stdin"].put_eof)
+                else:
+                    req["stdin"].put_eof()
         
         elif isinstance(event, AbortRequest):
             self._abort_request(event.request_id)
 
+        elif isinstance(event, GetValues):
+            values = {
+                FCGI_MAX_CONNS: b"100",
+                FCGI_MAX_REQS: b"100",
+                FCGI_MPXS_CONNS: b"1",
+            }
+            self.send_func(self.fcgi.send_get_values_result(values))
+
     def _abort_request(self, request_id: int):
-        with self._lock:
-            req = self._requests.get(request_id)
-            if req and not req["aborted"]:
-                req["aborted"] = True
+        req = self._requests.get(request_id)
+        if req and not req["aborted"]:
+            req["aborted"] = True
+            if self.loop:
+                self.loop.run_in_executor(None, req["stdin"].abort)
+            else:
                 req["stdin"].abort()
 
     def close_all(self):
-        """Signals abort to all active requests. Call this when the connection is lost."""
-        with self._lock:
-            ids = list(self._requests.keys())
-        for rid in ids:
+        for rid in list(self._requests.keys()):
             self._abort_request(rid)
+
+    def close_connection(self, send_func: Any = None):
+        self.close_all()
 
     def _run_app(self, req: Dict[str, Any]):
         request_id = req["id"]
@@ -175,7 +188,6 @@ class WSGIAdapter:
             if exc_info:
                 if req["response_started"]:
                     raise exc_info[1].with_traceback(exc_info[2])
-            
             req["headers_set"] = (status, response_headers)
             return lambda data: self._write(req, data)
 
@@ -191,7 +203,8 @@ class WSGIAdapter:
                 self._write(req, b"")
         except WSGIAbortError:
             pass
-        except Exception:
+        except Exception as e:
+            logger.exception("Exception in WSGI application")
             if not req["response_started"] and not req["aborted"]:
                 try:
                     start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
@@ -199,28 +212,31 @@ class WSGIAdapter:
                 except Exception:
                     pass
         finally:
-            # WSGI spec requirement: always call close() if it exists
             if hasattr(result, 'close'):
                 try:
                     result.close()
                 except Exception:
-                    pass
+                    logger.exception("Exception calling result.close()")
             
             if not req["aborted"]:
                 try:
                     self.send_func(self.fcgi.send_stdout(request_id, b""))
-                    self.send_func(self.fcgi.send_stderr(request_id, b"")) # EOF for stderr
                     self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
                 except Exception:
                     pass
             
-            with self._lock:
-                if request_id in self._requests:
-                    self._requests.pop(request_id)
+            if self.loop:
+                self.loop.call_soon_threadsafe(self._requests.pop, request_id, None)
+            else:
+                self._requests.pop(request_id, None)
 
-    def _write(self, req: Dict[str, Any], data: bytes):
+    def _write(self, req: Dict[str, Any], data: Any):
         if req["aborted"]:
             raise WSGIAbortError("Request aborted")
+
+        # Convert str to bytes if necessary (WSGI spec allows str in some cases)
+        if isinstance(data, str):
+            data = data.encode('latin-1')
 
         request_id = req["id"]
         try:
@@ -235,6 +251,6 @@ class WSGIAdapter:
             
             if data:
                 self.send_func(self.fcgi.send_stdout(request_id, data))
-        except Exception:
-            req["aborted"] = True
+        except Exception as e:
+            logger.error(f"Error writing to FastCGI socket: {e}")
             raise WSGIAbortError("Connection lost")

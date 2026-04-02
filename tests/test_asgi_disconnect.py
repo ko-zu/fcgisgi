@@ -33,8 +33,7 @@ class TestASGIDisconnect(unittest.IsolatedAsyncioTestCase):
                 task_cancelled = True
                 raise
 
-        adapter = ASGIAdapter(app, lambda d: None)
-        await adapter.startup()
+        adapter = ASGIAdapter(app, lambda d: None, startup_complete=True)
         
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -57,7 +56,6 @@ class TestASGIDisconnect(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         
         self.assertTrue(disconnected or task_cancelled, "ASGI app did not receive disconnect or wasn't cancelled")
-        await adapter.shutdown()
 
 if __name__ == "__main__":
     unittest.main()

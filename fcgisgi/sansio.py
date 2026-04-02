@@ -18,6 +18,10 @@ FCGI_GET_VALUES = 9
 FCGI_GET_VALUES_RESULT = 10
 FCGI_UNKNOWN_TYPE = 11
 
+FCGI_MAX_CONNS = b"FCGI_MAX_CONNS"
+FCGI_MAX_REQS = b"FCGI_MAX_REQS"
+FCGI_MPXS_CONNS = b"FCGI_MPXS_CONNS"
+
 FCGI_RESPONDER = 1
 FCGI_AUTHORIZER = 2
 FCGI_FILTER = 3
@@ -34,6 +38,8 @@ FCGI_HEADER_LEN = struct.calcsize(FCGI_HEADER_FORMAT)
 
 FCGI_BEGIN_REQUEST_BODY_FORMAT = "!HB5x"
 FCGI_END_REQUEST_BODY_FORMAT = "!LB3x"
+
+MAX_CONTENT_LEN = 65535
 
 @dataclass
 class RequestStarted:
@@ -87,16 +93,11 @@ class FastCGIConnection:
                 FCGI_HEADER_FORMAT, self._buffer[:FCGI_HEADER_LEN]
             )
             
-            if version != FCGI_VERSION_1:
-                # Handle version mismatch if needed
-                pass
-
             total_len = FCGI_HEADER_LEN + content_len + padding_len
             if len(self._buffer) < total_len:
                 break
             
             content = self._buffer[FCGI_HEADER_LEN : FCGI_HEADER_LEN + content_len]
-            # Remove processed record from buffer
             del self._buffer[:total_len]
 
             event = self._handle_record(type_, request_id, content)
@@ -125,16 +126,10 @@ class FastCGIConnection:
                     return ParamsReceived(request_id, params)
         
         elif type_ == FCGI_STDIN:
-            if content:
-                return StdinReceived(request_id, content)
-            else:
-                return EndOfStdin(request_id)
+            return StdinReceived(request_id, bytes(content)) if content else EndOfStdin(request_id)
         
         elif type_ == FCGI_DATA:
-            if content:
-                return DataReceived(request_id, content)
-            else:
-                return EndOfData(request_id)
+            return DataReceived(request_id, bytes(content)) if content else EndOfData(request_id)
         
         elif type_ == FCGI_GET_VALUES:
             return GetValues(self._decode_pairs(content))
@@ -145,43 +140,55 @@ class FastCGIConnection:
         pairs = {}
         pos = 0
         while pos < len(data):
-            name_len = data[pos]
-            if name_len & 128:
-                name_len = struct.unpack("!L", data[pos : pos + 4])[0] & 0x7FFFFFFF
-                pos += 4
-            else:
-                pos += 1
-            
-            value_len = data[pos]
-            if value_len & 128:
-                value_len = struct.unpack("!L", data[pos : pos + 4])[0] & 0x7FFFFFFF
-                pos += 4
-            else:
-                pos += 1
-            
-            name = bytes(data[pos : pos + name_len])
-            pos += name_len
-            value = bytes(data[pos : pos + value_len])
-            pos += value_len
-            pairs[name] = value
+            try:
+                name_len = data[pos]
+                if name_len & 128:
+                    name_len = struct.unpack("!L", data[pos : pos + 4])[0] & 0x7FFFFFFF
+                    pos += 4
+                else:
+                    pos += 1
+                
+                value_len = data[pos]
+                if value_len & 128:
+                    value_len = struct.unpack("!L", data[pos : pos + 4])[0] & 0x7FFFFFFF
+                    pos += 4
+                else:
+                    pos += 1
+                
+                name = bytes(data[pos : pos + name_len])
+                pos += name_len
+                value = bytes(data[pos : pos + value_len])
+                pos += value_len
+                pairs[name] = value
+            except (IndexError, struct.error):
+                break
         return pairs
 
     def send_stdout(self, request_id: int, data: bytes) -> bytes:
-        return self._encode_record(FCGI_STDOUT, request_id, data)
+        return self._encode_split_records(FCGI_STDOUT, request_id, data)
 
     def send_stderr(self, request_id: int, data: bytes) -> bytes:
-        return self._encode_record(FCGI_STDERR, request_id, data)
+        return self._encode_split_records(FCGI_STDERR, request_id, data)
 
     def send_end_request(self, request_id: int, app_status: int, protocol_status: int) -> bytes:
-
         content = struct.pack(FCGI_END_REQUEST_BODY_FORMAT, app_status, protocol_status)
         return self._encode_record(FCGI_END_REQUEST, request_id, content)
 
     def send_get_values_result(self, values: Dict[bytes, bytes]) -> bytes:
         content = bytearray()
         for name, value in values.items():
-            content.extend(self._encode_pair(name, value))
+            content.extend(self.encode_pair(name, value))
         return self._encode_record(FCGI_GET_VALUES_RESULT, 0, bytes(content))
+
+    def _encode_split_records(self, type_: int, request_id: int, data: bytes) -> bytes:
+        if not data:
+            return self._encode_record(type_, request_id, b"")
+        
+        res = bytearray()
+        for i in range(0, len(data), MAX_CONTENT_LEN):
+            chunk = data[i : i + MAX_CONTENT_LEN]
+            res.extend(self._encode_record(type_, request_id, chunk))
+        return bytes(res)
 
     def _encode_record(self, type_: int, request_id: int, content: bytes) -> bytes:
         content_len = len(content)
@@ -196,7 +203,7 @@ class FastCGIConnection:
         )
         return header + content + b"\x00" * padding_len
 
-    def _encode_pair(self, name: bytes, value: bytes) -> bytes:
+    def encode_pair(self, name: bytes, value: bytes) -> bytes:
         res = bytearray()
         for data in (name, value):
             length = len(data)

@@ -6,8 +6,7 @@ from fcgisgi.sansio import (
     FCGI_VERSION_1, FCGI_BEGIN_REQUEST, FCGI_PARAMS,
     FCGI_HEADER_FORMAT, FCGI_BEGIN_REQUEST_BODY_FORMAT
 )
-from fcgisgi.asyncio_server import FastCGIProtocol
-from fcgisgi.asgi_adapter import ASGIAdapter
+from fcgisgi.asyncio_server import FastCGIASGIProtocol, Server
 
 class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_interaction(self):
@@ -29,9 +28,9 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         output = bytearray()
         transport.write.side_effect = lambda data: output.extend(data)
 
-        adapter = ASGIAdapter(app)
-        await adapter.startup()
-        protocol = FastCGIProtocol(adapter)
+        server = Server(app)
+        server.startup_complete = True
+        protocol = FastCGIASGIProtocol(app, server)
         protocol.connection_made(transport)
 
         # Simulate inbound FastCGI data
@@ -41,10 +40,12 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         protocol.data_received(header + content)
 
         # 2. Params
-        params_content = b"\x0b\x01SCRIPT_NAME\x00"
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_content), 0)
+        from fcgisgi.sansio import FastCGIConnection
+        fcgi = FastCGIConnection()
+        params_data = fcgi.encode_pair(b"SCRIPT_NAME", b"")
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_data), 0)
         header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
-        protocol.data_received(header + params_content + header_eof)
+        protocol.data_received(header + params_data + header_eof)
 
         # Give some time for the ASGI app task to run
         await asyncio.sleep(0.1)
@@ -52,7 +53,6 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         # Verify that data was written to the transport
         self.assertIn(b"Status: 200", output)
         self.assertIn(b"OK", output)
-        await adapter.shutdown()
 
 if __name__ == "__main__":
     unittest.main()
