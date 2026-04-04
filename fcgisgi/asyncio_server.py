@@ -34,11 +34,13 @@ class FastCGIASGIProtocol(asyncio.Protocol):
     def eof_received(self):
         if self.adapter:
             self.adapter.close_all()
+            self.adapter = None
         return False
 
     def connection_lost(self, exc):
         if self.adapter:
             self.adapter.close_all()
+            self.adapter = None
 
 class FastCGIWSGIProtocol(asyncio.Protocol):
     """WSGI specific protocol implementation."""
@@ -72,11 +74,13 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
     def eof_received(self):
         if self.adapter:
             self.adapter.close_all()
+            self.adapter = None
         return False
 
     def connection_lost(self, exc):
         if self.adapter:
             self.adapter.close_all()
+            self.adapter = None
 
 class Server:
     def __init__(self, app: Callable, is_asgi: bool = True, **kwargs):
