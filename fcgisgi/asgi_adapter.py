@@ -1,10 +1,11 @@
 import asyncio
 from typing import Callable, Dict, Any, List, Optional
 from .sansio import (
-    FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived, 
+    FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
     EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
     FCGI_OVERLOADED
 )
+
 
 class ASGIAdapter:
     def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True, force_script_name: Optional[str] = None):
@@ -23,11 +24,13 @@ class ASGIAdapter:
     def handle_event(self, event: Event):
         if isinstance(event, RequestStarted):
             if event.role != FCGI_RESPONDER:
-                self.send_func(self.fcgi.send_end_request(event.request_id, 0, 3))
+                self.send_func(self.fcgi.send_end_request(
+                    event.request_id, 0, 3))
                 return
-            
+
             if not self._startup_complete:
-                self.send_func(self.fcgi.send_end_request(event.request_id, 0, FCGI_OVERLOADED))
+                self.send_func(self.fcgi.send_end_request(
+                    event.request_id, 0, FCGI_OVERLOADED))
                 return
 
             self._requests[event.request_id] = {
@@ -37,13 +40,14 @@ class ASGIAdapter:
                 "scope": None,
                 "aborted": False,
             }
-        
+
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req["scope"] = self._build_scope(event.request_id, event.params)
+                req["scope"] = self._build_scope(
+                    event.request_id, event.params)
                 req["task"] = asyncio.create_task(self._run_app(req))
-        
+
         elif isinstance(event, StdinReceived):
             req = self._requests.get(event.request_id)
             if req:
@@ -52,7 +56,7 @@ class ASGIAdapter:
                     "body": event.data,
                     "more_body": True,
                 })
-        
+
         elif isinstance(event, EndOfStdin):
             req = self._requests.get(event.request_id)
             if req:
@@ -61,7 +65,7 @@ class ASGIAdapter:
                     "body": b"",
                     "more_body": False,
                 })
-        
+
         elif isinstance(event, AbortRequest):
             self._abort_request(event.request_id)
 
@@ -88,7 +92,8 @@ class ASGIAdapter:
             self._abort_request(request_id)
 
     def _build_scope(self, request_id: int, params: Dict[bytes, bytes]) -> Dict[str, Any]:
-        p = {k.decode('latin-1'): v.decode('latin-1') for k, v in params.items()}
+        p = {k.decode('latin-1'): v.decode('latin-1')
+             for k, v in params.items()}
         method = p.get("REQUEST_METHOD", "GET")
         path = p.get("PATH_INFO", "")
         query_string = p.get("QUERY_STRING", "").encode('latin-1')
@@ -96,7 +101,8 @@ class ASGIAdapter:
         for k, v in params.items():
             k_str = k.decode('latin-1')
             if k_str.startswith("HTTP_"):
-                header_name = k_str[5:].replace("_", "-").lower().encode('latin-1')
+                header_name = k_str[5:].replace(
+                    "_", "-").lower().encode('latin-1')
                 headers.append((header_name, v))
             elif k_str in ("CONTENT_TYPE", "CONTENT_LENGTH"):
                 header_name = k_str.replace("_", "-").lower().encode('latin-1')
@@ -119,7 +125,7 @@ class ASGIAdapter:
 
     async def _run_app(self, req: Dict[str, Any]):
         request_id = req["id"]
-        
+
         async def receive():
             return await req["input_queue"].get()
 
@@ -135,14 +141,17 @@ class ASGIAdapter:
                     for name, value in headers:
                         res.append(name + b": " + value + b"\r\n")
                     res.append(b"\r\n")
-                    self.send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
+                    self.send_func(self.fcgi.send_stdout(
+                        request_id, b"".join(res)))
                 elif message["type"] == "http.response.body":
                     body = message.get("body", b"")
                     if body:
                         self.send_func(self.fcgi.send_stdout(request_id, body))
                     if not message.get("more_body", False):
-                        self.send_func(self.fcgi.send_stdout(request_id, b"")) # EOF
-                        self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
+                        self.send_func(self.fcgi.send_stdout(
+                            request_id, b""))  # EOF
+                        self.send_func(self.fcgi.send_end_request(
+                            request_id, 0, FCGI_REQUEST_COMPLETE))
             except Exception:
                 self._abort_request(request_id)
 

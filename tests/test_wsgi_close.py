@@ -7,6 +7,7 @@ from fcgisgi.sansio import (
 )
 from fcgisgi.wsgi_adapter import WSGIAdapter
 
+
 class TestWSGIClose(unittest.TestCase):
     def test_wsgi_close_on_error(self):
         import logging
@@ -19,6 +20,7 @@ class TestWSGIClose(unittest.TestCase):
                     yield b"part1"
                     # Connection loss will be simulated during this yield
                     yield b"part2"
+
                 def close(self):
                     nonlocal closed
                     closed = True
@@ -33,21 +35,24 @@ class TestWSGIClose(unittest.TestCase):
                     raise ConnectionError("Lost")
 
             adapter = WSGIAdapter(app, send_func)
-            
+
             # Start request
             content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-            header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
+            header = struct.pack(
+                FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
             adapter.handle_data(header + content)
-            
+
             # Params
             params_content = b"\x0b\x01SCRIPT_NAME\x00"
-            header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_content), 0)
-            header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
+            header = struct.pack(
+                FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_content), 0)
+            header_eof = struct.pack(
+                FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
             adapter.handle_data(header + params_content + header_eof)
-            
+
             # Wait for thread
             time.sleep(0.2)
-            
+
             self.assertTrue(closed, "Result.close() was not called")
         finally:
             logging.getLogger('fcgisgi.wsgi_adapter').setLevel(logging.NOTSET)
@@ -60,6 +65,7 @@ class TestWSGIClose(unittest.TestCase):
                 while True:
                     yield b"still running"
                     time.sleep(0.01)
+
             def close(self):
                 nonlocal closed
                 closed = True
@@ -69,27 +75,32 @@ class TestWSGIClose(unittest.TestCase):
             return Result()
 
         adapter = WSGIAdapter(app, lambda d: None)
-        
+
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
+                             FCGI_BEGIN_REQUEST, 1, len(content), 0)
         adapter.handle_data(header + content)
-        
+
         # Params
         params_content = b"\x0b\x01SCRIPT_NAME\x00"
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_content), 0)
-        header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
+                             FCGI_PARAMS, 1, len(params_content), 0)
+        header_eof = struct.pack(
+            FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
         adapter.handle_data(header + params_content + header_eof)
-        
+
         time.sleep(0.1)
-        
+
         # Now simulate abort from FastCGI
         from fcgisgi.sansio import FCGI_ABORT_REQUEST
-        header_abort = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_ABORT_REQUEST, 1, 0, 0)
+        header_abort = struct.pack(
+            FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_ABORT_REQUEST, 1, 0, 0)
         adapter.handle_data(header_abort)
-        
+
         time.sleep(0.1)
         self.assertTrue(closed, "Result.close() was not called after Abort")
+
 
 if __name__ == "__main__":
     unittest.main()

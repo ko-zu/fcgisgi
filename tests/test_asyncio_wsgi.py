@@ -11,6 +11,7 @@ from fcgisgi.sansio import (
 from fcgisgi.asyncio_server import FastCGIWSGIProtocol, Server
 from fcgisgi.wsgi_adapter import WSGIAdapter
 
+
 class TestFastCGIWSGIProtocol(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_multiconnection_isolation(self):
         """
@@ -44,15 +45,19 @@ class TestFastCGIWSGIProtocol(unittest.IsolatedAsyncioTestCase):
         def send_request(proto, conn_id, request_id):
             # 1. Begin Request
             content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-            header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, request_id, len(content), 0)
+            header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
+                                 FCGI_BEGIN_REQUEST, request_id, len(content), 0)
             proto.data_received(header + content)
 
             # 2. Params with Conn-ID using proper encoding
             from fcgisgi.sansio import FastCGIConnection
             fcgi = FastCGIConnection()
-            params_data = fcgi.encode_pair(b"HTTP_X_CONN_ID", conn_id.encode('latin-1'))
-            header_params = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, request_id, len(params_data), 0)
-            header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, request_id, 0, 0)
+            params_data = fcgi.encode_pair(
+                b"HTTP_X_CONN_ID", conn_id.encode('latin-1'))
+            header_params = struct.pack(
+                FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, request_id, len(params_data), 0)
+            header_eof = struct.pack(
+                FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, request_id, 0, 0)
             proto.data_received(header_params + params_data + header_eof)
 
         # Send requests concurrently
@@ -72,6 +77,7 @@ class TestFastCGIWSGIProtocol(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(b"CONN1", output2)
 
         executor.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()

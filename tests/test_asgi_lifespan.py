@@ -3,6 +3,7 @@ import asyncio
 import struct
 from fcgisgi.asyncio_server import Server
 
+
 class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
     async def test_lifespan_flow(self):
         startup_called = False

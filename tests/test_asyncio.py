@@ -8,6 +8,7 @@ from fcgisgi.sansio import (
 )
 from fcgisgi.asyncio_server import FastCGIASGIProtocol, Server
 
+
 class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_interaction(self):
         # A simple ASGI app that returns OK
@@ -36,15 +37,18 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         # Simulate inbound FastCGI data
         # 1. Begin Request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
+                             FCGI_BEGIN_REQUEST, 1, len(content), 0)
         protocol.data_received(header + content)
 
         # 2. Params
         from fcgisgi.sansio import FastCGIConnection
         fcgi = FastCGIConnection()
         params_data = fcgi.encode_pair(b"SCRIPT_NAME", b"")
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_data), 0)
-        header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
+                             FCGI_PARAMS, 1, len(params_data), 0)
+        header_eof = struct.pack(
+            FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
         protocol.data_received(header + params_data + header_eof)
 
         # Give some time for the ASGI app task to run
@@ -53,6 +57,7 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         # Verify that data was written to the transport
         self.assertIn(b"Status: 200", output)
         self.assertIn(b"OK", output)
+
 
 if __name__ == "__main__":
     unittest.main()

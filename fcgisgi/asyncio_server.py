@@ -11,8 +11,10 @@ from .wsgi_adapter import WSGIAdapter
 
 logger = logging.getLogger(__name__)
 
+
 class FastCGIASGIProtocol(asyncio.Protocol):
     """ASGI specific protocol implementation."""
+
     def __init__(self, app: Callable, server: 'Server'):
         self.app = app
         self.server = server
@@ -43,8 +45,10 @@ class FastCGIASGIProtocol(asyncio.Protocol):
             self.adapter.close_all()
             self.adapter = None
 
+
 class FastCGIWSGIProtocol(asyncio.Protocol):
     """WSGI specific protocol implementation."""
+
     def __init__(self, app: Callable, executor: Any, server: 'Server'):
         self.app = app
         self.executor = executor
@@ -65,7 +69,8 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
         self.adapter = WSGIAdapter(
             self.app,
             thread_safe_send,
-            lambda target, args: self.loop.run_in_executor(self.executor, target, *args),
+            lambda target, args: self.loop.run_in_executor(
+                self.executor, target, *args),
             force_script_name=self.server.force_script_name
         )
 
@@ -83,6 +88,7 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
         if self.adapter:
             self.adapter.close_all()
             self.adapter = None
+
 
 class Server:
     def __init__(self, app: Callable, is_asgi: bool = True, force_script_name: Optional[str] = None, **kwargs):
@@ -131,7 +137,8 @@ class Server:
                 return FastCGIWSGIProtocol(self.app, executor, self)
 
         if bind_address is None:
-            sock = socket.fromfd(FCGI_LISTENSOCK_FILENO, socket.AF_INET, socket.SOCK_STREAM)
+            sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
+                                 socket.AF_INET, socket.SOCK_STREAM)
             server = await self.loop.create_server(protocol_factory, sock=sock)
         elif isinstance(bind_address, str):
             if os.path.exists(bind_address):
@@ -163,14 +170,16 @@ class Server:
                 except asyncio.TimeoutError:
                     logger.error("WSGI thread pool shutdown timed out")
 
-
     async def _run_lifespan(self):
-        scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.0"}}
+        scope = {"type": "lifespan", "asgi": {
+            "version": "3.0", "spec_version": "2.0"}}
+
         async def receive():
             try:
                 return await self._lifespan_queue.get()
             except asyncio.CancelledError:
                 return {"type": "lifespan.shutdown"}
+
         async def send(message):
             if message["type"] == "lifespan.startup.complete":
                 self._startup_event.set()
@@ -191,10 +200,14 @@ class Server:
         if self._stop_event:
             self._stop_event.set()
 
+
 async def run_asgi_server(app: Callable, bind_address=None, force_script_name: Optional[str] = None, **kwargs):
-    server = Server(app, is_asgi=True, force_script_name=force_script_name, **kwargs)
+    server = Server(app, is_asgi=True,
+                    force_script_name=force_script_name, **kwargs)
     await server.run(bind_address)
 
+
 async def run_wsgi_server(app: Callable, bind_address=None, force_script_name: Optional[str] = None, **kwargs):
-    server = Server(app, is_asgi=False, force_script_name=force_script_name, **kwargs)
+    server = Server(app, is_asgi=False,
+                    force_script_name=force_script_name, **kwargs)
     await server.run(bind_address)
