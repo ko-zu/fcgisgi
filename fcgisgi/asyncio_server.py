@@ -188,7 +188,7 @@ class Server:
         if self._stop_event:
             self._stop_event.set()
 
-async def run_server(app: Callable, bind_address=None, **kwargs):
+async def run_asgi_server(app: Callable, bind_address=None, **kwargs):
     server = Server(app, is_asgi=True, **kwargs)
     await server.run(bind_address)
 
