@@ -7,12 +7,13 @@ from .sansio import (
 )
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True):
+    def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True, force_script_name: Optional[str] = None):
         self.app = app
         self.send_func = send_func
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, Dict[str, Any]] = {}
         self._startup_complete = startup_complete
+        self.force_script_name = force_script_name
 
     def handle_data(self, data: bytes):
         events = self.fcgi.feed_data(data)
@@ -110,7 +111,7 @@ class ASGIAdapter:
             "path": path,
             "raw_path": p.get("REQUEST_URI", path).split("?")[0].encode('latin-1'),
             "query_string": query_string,
-            "root_path": p.get("SCRIPT_NAME", ""),
+            "root_path": self.force_script_name if self.force_script_name is not None else p.get("SCRIPT_NAME", ""),
             "headers": headers,
             "client": (p.get("REMOTE_ADDR", ""), int(p.get("REMOTE_PORT", 0))),
             "server": (p.get("SERVER_NAME", ""), int(p.get("SERVER_PORT", 0))),

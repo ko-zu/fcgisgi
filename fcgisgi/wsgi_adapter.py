@@ -79,12 +79,13 @@ class WSGIErrors:
         pass
 
 class WSGIAdapter:
-    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable = None):
+    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable = None, force_script_name: Optional[str] = None):
         self.application = application
         self.send_func = send_func
         self.spawn_func = spawn_func or self._default_spawn
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, Dict[str, Any]] = {}
+        self.force_script_name = force_script_name
         try:
             self.loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -179,7 +180,9 @@ class WSGIAdapter:
         environ['wsgi.multiprocess'] = False
         environ['wsgi.run_once'] = False
 
-        if 'SCRIPT_NAME' not in environ:
+        if self.force_script_name is not None:
+            environ['SCRIPT_NAME'] = self.force_script_name
+        elif 'SCRIPT_NAME' not in environ:
             environ['SCRIPT_NAME'] = ''
         if 'PATH_INFO' not in environ:
             environ['PATH_INFO'] = ''

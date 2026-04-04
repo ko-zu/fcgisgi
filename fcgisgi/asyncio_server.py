@@ -24,7 +24,8 @@ class FastCGIASGIProtocol(asyncio.Protocol):
         self.adapter = ASGIAdapter(
             self.app,
             self.transport.write,
-            startup_complete=self.server.startup_complete
+            startup_complete=self.server.startup_complete,
+            force_script_name=self.server.force_script_name
         )
 
     def data_received(self, data):
@@ -64,7 +65,8 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
         self.adapter = WSGIAdapter(
             self.app,
             thread_safe_send,
-            lambda target, args: self.loop.run_in_executor(self.executor, target, *args)
+            lambda target, args: self.loop.run_in_executor(self.executor, target, *args),
+            force_script_name=self.server.force_script_name
         )
 
     def data_received(self, data):
@@ -83,9 +85,10 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
             self.adapter = None
 
 class Server:
-    def __init__(self, app: Callable, is_asgi: bool = True, **kwargs):
+    def __init__(self, app: Callable, is_asgi: bool = True, force_script_name: Optional[str] = None, **kwargs):
         self.app = app
         self.is_asgi = is_asgi
+        self.force_script_name = force_script_name
         self.kwargs = kwargs
         self.startup_complete = not is_asgi
         self._stop_event = None
@@ -188,10 +191,10 @@ class Server:
         if self._stop_event:
             self._stop_event.set()
 
-async def run_asgi_server(app: Callable, bind_address=None, **kwargs):
-    server = Server(app, is_asgi=True, **kwargs)
+async def run_asgi_server(app: Callable, bind_address=None, force_script_name: Optional[str] = None, **kwargs):
+    server = Server(app, is_asgi=True, force_script_name=force_script_name, **kwargs)
     await server.run(bind_address)
 
-async def run_wsgi_server(app: Callable, bind_address=None, **kwargs):
-    server = Server(app, is_asgi=False, **kwargs)
+async def run_wsgi_server(app: Callable, bind_address=None, force_script_name: Optional[str] = None, **kwargs):
+    server = Server(app, is_asgi=False, force_script_name=force_script_name, **kwargs)
     await server.run(bind_address)
