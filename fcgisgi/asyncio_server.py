@@ -143,7 +143,7 @@ class Server:
         elif isinstance(bind_address, str):
             if os.path.exists(bind_address):
                 os.unlink(bind_address)
-            server = await self.loop.create_server(protocol_factory, path=bind_address)
+            server = await self.loop.create_unix_server(protocol_factory, path=bind_address)
         else:
             server = await self.loop.create_server(protocol_factory, host=bind_address[0], port=bind_address[1])
 
