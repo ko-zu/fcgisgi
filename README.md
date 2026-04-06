@@ -38,6 +38,10 @@ async def app(scope, receive, send):
 if __name__ == "__main__":
     # Bind to a TCP port or a Unix socket
     asyncio.run(run_asgi_server(app, bind_address=("127.0.0.1", 9000)))
+    # asyncio.run(run_asgi_server(app, bind_address="/var/run/fcgisgi.sock"))
+
+    # Or, use FastCGI default socket fd=0 supplied from httpd.
+    # asyncio.run(run_asgi_server(app))
 ```
 
 ### WSGI
@@ -65,18 +69,22 @@ Use the `force_script_name` option to override the mount point (root path) of yo
 AddHandler fcgid-script .fcgi
 RewriteEngine On
 RewriteBase /
-# static files
-RewriteRule ^(static|assets|.well-known)/ - [L]
-RewriteRule ^(favicon.ico|robots.txt)$ - [L]
-# route all to fcgi script
-RewriteRule ^(.*)$ index.fcgi/$1 [QSA,END]
+# Static files
+RewriteRule ^(static|assets|\.well-known)/ - [L]
+RewriteRule ^(favicon\.ico|robots\.txt)$ - [L]
+# Route everything else
+RewriteRule ^.* index.fcgi/$0 [QSA,END]
 
 ### index.fcgi
 #!/bin/sh
-exec /path/to/venv/bin/python entrypoint.py
+PATH=/path/to/venv/bin:$PATH
+export PATH
+exec python entrypoint.py
 ```
 
 ```python
+### entrypoint.py
+
 import asyncio
 from fcgisgi import run_asgi_server
 
@@ -86,7 +94,6 @@ async def app(scope, receive, send):
 if __name__ == "__main__":
     # Specify the mount point (e.g., "/" if mounted at the root)
     asyncio.run(run_asgi_server(app, force_script_name="/"))
-
 ```
 
 ## License
