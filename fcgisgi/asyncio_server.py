@@ -55,22 +55,22 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
         self.server = server
         self.adapter = None
         self.transport = None
-        self.loop = None
 
     def connection_made(self, transport):
         self.transport = transport
-        self.loop = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
 
         # Connection-specific thread-safe send function
         def thread_safe_send(d):
-            self.loop.call_soon_threadsafe(self.transport.write, d)
+            loop.call_soon_threadsafe(self.transport.write, d)
 
         # Create a new adapter instance per connection
         self.adapter = WSGIAdapter(
             self.app,
             thread_safe_send,
-            lambda target, args: self.loop.run_in_executor(
+            lambda target, args: loop.run_in_executor(
                 self.executor, target, *args),
+            loop.call_soon_threadsafe,
             force_script_name=self.server.force_script_name
         )
 

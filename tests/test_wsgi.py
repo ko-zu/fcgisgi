@@ -2,6 +2,7 @@ import unittest
 import struct
 import io
 import time
+import threading
 from fcgisgi.sansio import (
     FCGI_VERSION_1, FCGI_BEGIN_REQUEST, FCGI_PARAMS, FCGI_STDIN,
     FCGI_HEADER_FORMAT, FCGI_BEGIN_REQUEST_BODY_FORMAT, FastCGIConnection
@@ -22,7 +23,7 @@ class TestWSGIAdapter(unittest.TestCase):
             start_response('200 OK', [('Content-Type', 'text/plain')])
             return [b"Hello World"]
 
-        adapter = WSGIAdapter(app, self.send_func)
+        adapter = WSGIAdapter(app, self.send_func, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args))
 
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -60,7 +61,7 @@ class TestWSGIAdapter(unittest.TestCase):
             def app(environ, start_response):
                 raise Exception("App crashed")
 
-            adapter = WSGIAdapter(app, self.send_func)
+            adapter = WSGIAdapter(app, self.send_func, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args))
 
             # Start request
             content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -89,7 +90,7 @@ class TestWSGIAdapter(unittest.TestCase):
             start_response('200 OK', [])
             return [b"OK"]
 
-        adapter = WSGIAdapter(app, self.send_func)
+        adapter = WSGIAdapter(app, self.send_func, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args))
 
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)

@@ -1,5 +1,6 @@
 import unittest
 import asyncio
+import threading
 from fcgisgi.asgi_adapter import ASGIAdapter
 from fcgisgi.wsgi_adapter import WSGIAdapter
 from fcgisgi.sansio import (
@@ -85,7 +86,7 @@ class TestForceScriptName(unittest.IsolatedAsyncioTestCase):
             start_response('200 OK', [])
             return [b"ok"]
 
-        adapter = WSGIAdapter(app, lambda d: None, force_script_name="/myapp")
+        adapter = WSGIAdapter(app, lambda d: None, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args), force_script_name="/myapp")
 
         # Simulate request
         adapter.handle_data(make_begin_request(1))

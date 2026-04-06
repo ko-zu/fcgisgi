@@ -84,23 +84,14 @@ class WSGIErrors:
 
 
 class WSGIAdapter:
-    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable = None, force_script_name: Optional[str] = None):
+    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, force_script_name: Optional[str] = None):
         self.application = application
         self.send_func = send_func
-        self.spawn_func = spawn_func or self._default_spawn
+        self.spawn_func = spawn_func
+        self.call_soon_func = call_soon_func
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, Dict[str, Any]] = {}
         self.force_script_name = force_script_name
-        try:
-            self.loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self.loop = None
-
-    def _default_spawn(self, target, args):
-        t = threading.Thread(target=target, args=args)
-        t.daemon = True
-        t.start()
-        return t
 
     def handle_data(self, data: bytes, send_func: Any = None):
         events = self.fcgi.feed_data(data)
@@ -135,19 +126,12 @@ class WSGIAdapter:
         elif isinstance(event, StdinReceived):
             req = self._requests.get(event.request_id)
             if req:
-                if self.loop:
-                    self.loop.run_in_executor(
-                        None, req["stdin"].put, event.data)
-                else:
-                    req["stdin"].put(event.data)
+                self.spawn_func(req["stdin"].put, (event.data,))
 
         elif isinstance(event, EndOfStdin):
             req = self._requests.get(event.request_id)
             if req:
-                if self.loop:
-                    self.loop.run_in_executor(None, req["stdin"].put_eof)
-                else:
-                    req["stdin"].put_eof()
+                self.spawn_func(req["stdin"].put_eof, ())
 
         elif isinstance(event, AbortRequest):
             self._abort_request(event.request_id)
@@ -164,10 +148,7 @@ class WSGIAdapter:
         req = self._requests.get(request_id)
         if req and not req["aborted"]:
             req["aborted"] = True
-            if self.loop:
-                self.loop.run_in_executor(None, req["stdin"].abort)
-            else:
-                req["stdin"].abort()
+            self.spawn_func(req["stdin"].abort, ())
 
     def close_all(self):
         for rid in list(self._requests.keys()):
@@ -239,11 +220,7 @@ class WSGIAdapter:
                 except Exception:
                     pass
 
-            if self.loop:
-                self.loop.call_soon_threadsafe(
-                    self._requests.pop, request_id, None)
-            else:
-                self._requests.pop(request_id, None)
+            self.call_soon_func(self._requests.pop, request_id, None)
 
     def _write(self, req: Dict[str, Any], data: Any):
         if req["aborted"]:
