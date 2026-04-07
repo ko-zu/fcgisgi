@@ -23,6 +23,7 @@ class FastCGIASGIProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.transport = transport
+        self.server.protocols.add(self)
         self.adapter = ASGIAdapter(
             self.app,
             self.transport.write,
@@ -41,6 +42,7 @@ class FastCGIASGIProtocol(asyncio.Protocol):
         return False
 
     def connection_lost(self, exc):
+        self.server.protocols.discard(self)
         if self.adapter:
             self.adapter.close_all()
             self.adapter = None
@@ -58,6 +60,7 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.transport = transport
+        self.server.protocols.add(self)
         loop = asyncio.get_running_loop()
 
         # Connection-specific thread-safe send function
@@ -85,6 +88,7 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
         return False
 
     def connection_lost(self, exc):
+        self.server.protocols.discard(self)
         if self.adapter:
             self.adapter.close_all()
             self.adapter = None
@@ -102,6 +106,7 @@ class Server:
         self._lifespan_queue = None
         self._startup_event = asyncio.Event()
         self._shutdown_event = asyncio.Event()
+        self.protocols = set()
 
     async def run(self, bind_address: Union[str, Tuple[str, int], None] = None):
         self.loop = asyncio.get_running_loop()
@@ -177,6 +182,11 @@ class Server:
                 await self._stop_event.wait()
         finally:
             # 4. Graceful Shutdown
+            # First, signal all active protocols to abort their tasks
+            for proto in list(self.protocols):
+                if proto.adapter:
+                    proto.adapter.close_all()
+
             server.close()
             await server.wait_closed()
 
