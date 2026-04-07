@@ -137,12 +137,37 @@ class Server:
                 return FastCGIWSGIProtocol(self.app, executor, self)
 
         if bind_address is None:
-            sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
-                                 socket.AF_INET, socket.SOCK_STREAM)
-            server = await self.loop.create_server(protocol_factory, sock=sock)
+            # Use socket.fromfd to probe the family without closing the original fd=0.
+            try:
+                probe_sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
+                                           socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    # 39 is SO_DOMAIN on Linux.
+                    family = probe_sock.getsockopt(
+                        socket.SOL_SOCKET, getattr(socket, 'SO_DOMAIN', 39))
+                except (AttributeError, OSError):
+                    family = socket.AF_INET
+                probe_sock.close()
+            except:
+                family = socket.AF_INET
+
+            if family == socket.AF_UNIX:
+                sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
+                                     socket.AF_UNIX, socket.SOCK_STREAM)
+                server = await self.loop.create_unix_server(protocol_factory, sock=sock)
+            else:
+                sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
+                                     family, socket.SOCK_STREAM)
+                server = await self.loop.create_server(protocol_factory, sock=sock)
         elif isinstance(bind_address, str):
             if os.path.exists(bind_address):
-                os.unlink(bind_address)
+                import stat
+                try:
+                    st = os.stat(bind_address)
+                    if stat.S_ISSOCK(st.st_mode):
+                        os.unlink(bind_address)
+                except OSError:
+                    pass
             server = await self.loop.create_unix_server(protocol_factory, path=bind_address)
         else:
             server = await self.loop.create_server(protocol_factory, host=bind_address[0], port=bind_address[1])

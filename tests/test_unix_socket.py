@@ -12,11 +12,12 @@ from fcgisgi.sansio import (
 
 class TestUnixSocket(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.test_dir = tempfile.mkdtemp()
+        self._temp_dir = tempfile.TemporaryDirectory()
+        self.test_dir = self._temp_dir.name
         self.socket_path = os.path.join(self.test_dir, "test.sock")
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir)
+        self._temp_dir.cleanup()
 
     async def test_unix_server_lifecycle(self):
         async def app(scope, receive, send):
