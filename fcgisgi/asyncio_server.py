@@ -159,7 +159,12 @@ class Server:
             if family == socket.AF_UNIX:
                 sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
                                      socket.AF_UNIX, socket.SOCK_STREAM)
-                server = await self.loop.create_unix_server(protocol_factory, sock=sock)
+                import sys
+                if sys.version_info >= (3, 13):
+                    server = await self.loop.create_unix_server(protocol_factory, sock=sock,
+                                                                cleanup_socket=False)
+                else:
+                    server = await self.loop.create_unix_server(protocol_factory, sock=sock)
             else:
                 sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
                                      family, socket.SOCK_STREAM)
