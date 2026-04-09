@@ -28,7 +28,8 @@ class FastCGIASGIProtocol(asyncio.Protocol):
             self.app,
             self.transport.write,
             startup_complete=self.server.startup_complete,
-            force_script_name=self.server.force_script_name
+            force_script_name=self.server.force_script_name,
+            on_close=self.transport.close
         )
 
     def data_received(self, data):
@@ -74,7 +75,8 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
             lambda target, args: loop.run_in_executor(
                 self.executor, target, *args),
             loop.call_soon_threadsafe,
-            force_script_name=self.server.force_script_name
+            force_script_name=self.server.force_script_name,
+            on_close=self.transport.close
         )
 
     def data_received(self, data):

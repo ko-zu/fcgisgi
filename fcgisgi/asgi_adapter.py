@@ -13,6 +13,7 @@ from .sansio import (
 class ASGIRequest:
     id: int
     input_queue: asyncio.Queue
+    keep_conn: bool = True
     task: Optional[asyncio.Task] = None
     scope: Optional[Dict[str, Any]] = None
     aborted: bool = False
@@ -20,9 +21,10 @@ class ASGIRequest:
 
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True, force_script_name: Optional[str] = None):
+    def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True, force_script_name: Optional[str] = None, on_close: Optional[Callable[[], None]] = None):
         self.app = app
         self.send_func = send_func
+        self.on_close = on_close
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, ASGIRequest] = {}
         self._startup_complete = startup_complete
@@ -45,9 +47,11 @@ class ASGIAdapter:
                     event.request_id, 0, FCGI_OVERLOADED))
                 return
 
+            from .sansio import FCGI_KEEP_CONN
             self._requests[event.request_id] = ASGIRequest(
                 id=event.request_id,
-                input_queue=asyncio.Queue()
+                input_queue=asyncio.Queue(),
+                keep_conn=bool(event.flags & FCGI_KEEP_CONN)
             )
 
         elif isinstance(event, ParamsReceived):
@@ -184,3 +188,5 @@ class ASGIAdapter:
                     pass
         finally:
             self._requests.pop(request_id, None)
+            if not req.keep_conn and self.on_close:
+                self.on_close()

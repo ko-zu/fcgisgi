@@ -10,7 +10,7 @@ from typing import Callable, Dict, Any, List, Optional, Tuple
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
     EndOfStdin, AbortRequest, Event, GetValues, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
-    FCGI_MAX_CONNS, FCGI_MAX_REQS, FCGI_MPXS_CONNS
+    FCGI_MAX_CONNS, FCGI_MAX_REQS, FCGI_MPXS_CONNS, FCGI_KEEP_CONN
 )
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,7 @@ class WSGIRequest:
     id: int
     stdin: 'WSGIInput'
     params: Dict[str, str] = field(default_factory=dict)
+    keep_conn: bool = True
     thread: Optional[threading.Thread] = None
     headers_set: Optional[Tuple[str, List[Tuple[str, str]]]] = None
     response_started: bool = False
@@ -96,9 +97,10 @@ class WSGIRequest:
 
 
 class WSGIAdapter:
-    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, force_script_name: Optional[str] = None):
+    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, force_script_name: Optional[str] = None, on_close: Optional[Callable[[], None]] = None):
         self.application = application
         self.send_func = send_func
+        self.on_close = on_close
         self.spawn_func = spawn_func
         self.call_soon_func = call_soon_func
         self.fcgi = FastCGIConnection()
@@ -119,7 +121,8 @@ class WSGIAdapter:
 
             self._requests[event.request_id] = WSGIRequest(
                 id=event.request_id,
-                stdin=WSGIInput()
+                stdin=WSGIInput(),
+                keep_conn=bool(event.flags & FCGI_KEEP_CONN)
             )
 
         elif isinstance(event, ParamsReceived):
@@ -227,6 +230,8 @@ class WSGIAdapter:
                     pass
 
             self.call_soon_func(self._requests.pop, request_id, None)
+            if not req.keep_conn and self.on_close:
+                self.on_close()
 
     def _write(self, req: WSGIRequest, data: Any):
         if req.aborted:
