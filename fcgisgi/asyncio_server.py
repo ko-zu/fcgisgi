@@ -127,8 +127,9 @@ class Server:
             self.startup_complete = True
 
         # 2. Setup Signals
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            self.loop.add_signal_handler(sig, self.stop)
+        # SIGINT (Ctrl+C) is handled by asyncio itself (raising CancelledError),
+        # so we only explicitly handle SIGTERM for graceful shutdown.
+        self.loop.add_signal_handler(signal.SIGTERM, self.stop)
 
         # 3. Setup Socket and Server
         executor = None
