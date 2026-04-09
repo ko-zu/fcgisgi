@@ -13,7 +13,6 @@ from .sansio import (
 class ASGIRequest:
     id: int
     input_queue: asyncio.Queue
-    keep_conn: bool = True
     task: Optional[asyncio.Task] = None
     scope: Optional[Dict[str, Any]] = None
     aborted: bool = False
@@ -27,6 +26,7 @@ class ASGIAdapter:
         self.on_close = on_close
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, ASGIRequest] = {}
+        self._keep_conn = True
         self._startup_complete = startup_complete
         self.force_script_name = force_script_name
 
@@ -47,10 +47,13 @@ class ASGIAdapter:
                     event.request_id, 0, FCGI_OVERLOADED))
                 return
 
+            keep_conn = bool(event.flags & FCGI_KEEP_CONN)
+            if not keep_conn:
+                self._keep_conn = False
+
             self._requests[event.request_id] = ASGIRequest(
                 id=event.request_id,
-                input_queue=asyncio.Queue(),
-                keep_conn=bool(event.flags & FCGI_KEEP_CONN)
+                input_queue=asyncio.Queue()
             )
 
         elif isinstance(event, ParamsReceived):
@@ -187,5 +190,5 @@ class ASGIAdapter:
                     pass
         finally:
             self._requests.pop(request_id, None)
-            if not req.keep_conn and not self._requests:
+            if not self._keep_conn and not self._requests:
                 self.on_close()

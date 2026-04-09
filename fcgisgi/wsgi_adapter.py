@@ -89,7 +89,6 @@ class WSGIRequest:
     id: int
     stdin: 'WSGIInput'
     params: Dict[str, str] = field(default_factory=dict)
-    keep_conn: bool = True
     thread: Optional[threading.Thread] = None
     headers_set: Optional[Tuple[str, List[Tuple[str, str]]]] = None
     response_started: bool = False
@@ -105,6 +104,7 @@ class WSGIAdapter:
         self.call_soon_func = call_soon_func
         self.fcgi = FastCGIConnection()
         self._requests: Dict[int, WSGIRequest] = {}
+        self._keep_conn = True
         self.force_script_name = force_script_name
 
     def handle_data(self, data: bytes, send_func: Any = None):
@@ -119,10 +119,13 @@ class WSGIAdapter:
                     event.request_id, 0, 3))
                 return
 
+            keep_conn = bool(event.flags & FCGI_KEEP_CONN)
+            if not keep_conn:
+                self._keep_conn = False
+
             self._requests[event.request_id] = WSGIRequest(
                 id=event.request_id,
-                stdin=WSGIInput(),
-                keep_conn=bool(event.flags & FCGI_KEEP_CONN)
+                stdin=WSGIInput()
             )
 
         elif isinstance(event, ParamsReceived):
@@ -229,11 +232,11 @@ class WSGIAdapter:
                 except Exception:
                     pass
 
-            self.call_soon_func(self._check_close, request_id, req.keep_conn)
+            self.call_soon_func(self._check_close, request_id)
 
-    def _check_close(self, request_id: int, keep_conn: bool):
+    def _check_close(self, request_id: int):
         self._requests.pop(request_id, None)
-        if not keep_conn and not self._requests:
+        if not self._keep_conn and not self._requests:
             self.on_close()
 
     def _write(self, req: WSGIRequest, data: Any):
