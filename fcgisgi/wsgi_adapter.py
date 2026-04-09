@@ -229,9 +229,12 @@ class WSGIAdapter:
                 except Exception:
                     pass
 
-            self.call_soon_func(self._requests.pop, request_id, None)
-            if not req.keep_conn:
-                self.on_close()
+            self.call_soon_func(self._check_close, request_id, req.keep_conn)
+
+    def _check_close(self, request_id: int, keep_conn: bool):
+        self._requests.pop(request_id, None)
+        if not keep_conn and not self._requests:
+            self.on_close()
 
     def _write(self, req: WSGIRequest, data: Any):
         if req.aborted:

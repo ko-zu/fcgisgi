@@ -187,5 +187,5 @@ class ASGIAdapter:
                     pass
         finally:
             self._requests.pop(request_id, None)
-            if not req.keep_conn:
+            if not req.keep_conn and not self._requests:
                 self.on_close()
