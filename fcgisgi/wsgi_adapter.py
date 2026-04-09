@@ -97,7 +97,7 @@ class WSGIRequest:
 
 
 class WSGIAdapter:
-    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, force_script_name: Optional[str] = None, on_close: Optional[Callable[[], None]] = None):
+    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, on_close: Callable[[], None], force_script_name: Optional[str] = None):
         self.application = application
         self.send_func = send_func
         self.on_close = on_close
@@ -230,7 +230,7 @@ class WSGIAdapter:
                     pass
 
             self.call_soon_func(self._requests.pop, request_id, None)
-            if not req.keep_conn and self.on_close:
+            if not req.keep_conn:
                 self.on_close()
 
     def _write(self, req: WSGIRequest, data: Any):

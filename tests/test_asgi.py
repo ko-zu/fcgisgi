@@ -29,7 +29,7 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
                     'body': b'Hello ASGI',
                 })
 
-        adapter = ASGIAdapter(app, self.send_func, startup_complete=True)
+        adapter = ASGIAdapter(app, self.send_func, on_close=lambda: None, startup_complete=True)
 
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -57,7 +57,7 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
             if scope['type'] == 'http':
                 raise Exception("App crashed")
 
-        adapter = ASGIAdapter(app, self.send_func, startup_complete=True)
+        adapter = ASGIAdapter(app, self.send_func, on_close=lambda: None, startup_complete=True)
 
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)

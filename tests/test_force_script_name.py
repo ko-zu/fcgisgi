@@ -59,7 +59,7 @@ class TestForceScriptName(unittest.IsolatedAsyncioTestCase):
                     'body': b"ok",
                 })
 
-        adapter = ASGIAdapter(app, lambda d: None, force_script_name="/myapp")
+        adapter = ASGIAdapter(app, lambda d: None, on_close=lambda: None, force_script_name="/myapp")
 
         # Simulate request
         adapter.handle_data(make_begin_request(1))
@@ -86,7 +86,11 @@ class TestForceScriptName(unittest.IsolatedAsyncioTestCase):
             start_response('200 OK', [])
             return [b"ok"]
 
-        adapter = WSGIAdapter(app, lambda d: None, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args), force_script_name="/myapp")
+        adapter = WSGIAdapter(app, lambda d: None,
+                             spawn_func=lambda f, args: threading.Thread(target=f, args=args).start(),
+                             call_soon_func=lambda f, *args: f(*args),
+                             on_close=lambda: None,
+                             force_script_name="/myapp")
 
         # Simulate request
         adapter.handle_data(make_begin_request(1))

@@ -35,7 +35,10 @@ class TestWSGIClose(unittest.TestCase):
                 if b"part1" in data:
                     raise ConnectionError("Lost")
 
-            adapter = WSGIAdapter(app, send_func, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args))
+            adapter = WSGIAdapter(app, send_func,
+                                 spawn_func=lambda f, args: threading.Thread(target=f, args=args).start(),
+                                 call_soon_func=lambda f, *args: f(*args),
+                                 on_close=lambda: None)
 
             # Start request
             content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
@@ -75,7 +78,10 @@ class TestWSGIClose(unittest.TestCase):
             start_response('200 OK', [])
             return Result()
 
-        adapter = WSGIAdapter(app, lambda d: None, lambda f, args: threading.Thread(target=f, args=args).start(), lambda f, *args: f(*args))
+        adapter = WSGIAdapter(app, lambda d: None,
+                             spawn_func=lambda f, args: threading.Thread(target=f, args=args).start(),
+                             call_soon_func=lambda f, *args: f(*args),
+                             on_close=lambda: None)
 
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)

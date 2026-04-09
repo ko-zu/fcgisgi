@@ -5,7 +5,7 @@ from typing import Callable, Dict, Any, List, Optional
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
     EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
-    FCGI_OVERLOADED
+    FCGI_OVERLOADED, FCGI_KEEP_CONN
 )
 
 
@@ -21,7 +21,7 @@ class ASGIRequest:
 
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True, force_script_name: Optional[str] = None, on_close: Optional[Callable[[], None]] = None):
+    def __init__(self, app: Callable, send_func: Callable[[bytes], None], on_close: Callable[[], None], startup_complete: bool = True, force_script_name: Optional[str] = None):
         self.app = app
         self.send_func = send_func
         self.on_close = on_close
@@ -47,7 +47,6 @@ class ASGIAdapter:
                     event.request_id, 0, FCGI_OVERLOADED))
                 return
 
-            from .sansio import FCGI_KEEP_CONN
             self._requests[event.request_id] = ASGIRequest(
                 id=event.request_id,
                 input_queue=asyncio.Queue(),
@@ -188,5 +187,5 @@ class ASGIAdapter:
                     pass
         finally:
             self._requests.pop(request_id, None)
-            if not req.keep_conn and self.on_close:
+            if not req.keep_conn:
                 self.on_close()

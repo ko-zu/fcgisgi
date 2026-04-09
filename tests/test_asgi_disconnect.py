@@ -34,7 +34,7 @@ class TestASGIDisconnect(unittest.IsolatedAsyncioTestCase):
                 task_cancelled = True
                 raise
 
-        adapter = ASGIAdapter(app, lambda d: None, startup_complete=True)
+        adapter = ASGIAdapter(app, lambda d: None, on_close=lambda: None, startup_complete=True)
 
         # Start request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
