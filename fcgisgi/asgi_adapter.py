@@ -1,5 +1,7 @@
 import asyncio
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Any, List, Optional
+
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
     EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
@@ -7,12 +9,22 @@ from .sansio import (
 )
 
 
+@dataclass
+class ASGIRequest:
+    id: int
+    input_queue: asyncio.Queue
+    task: Optional[asyncio.Task] = None
+    scope: Optional[Dict[str, Any]] = None
+    aborted: bool = False
+    response_started: bool = False
+
+
 class ASGIAdapter:
     def __init__(self, app: Callable, send_func: Callable[[bytes], None], startup_complete: bool = True, force_script_name: Optional[str] = None):
         self.app = app
         self.send_func = send_func
         self.fcgi = FastCGIConnection()
-        self._requests: Dict[int, Dict[str, Any]] = {}
+        self._requests: Dict[int, ASGIRequest] = {}
         self._startup_complete = startup_complete
         self.force_script_name = force_script_name
 
@@ -33,25 +45,22 @@ class ASGIAdapter:
                     event.request_id, 0, FCGI_OVERLOADED))
                 return
 
-            self._requests[event.request_id] = {
-                "id": event.request_id,
-                "input_queue": asyncio.Queue(),
-                "task": None,
-                "scope": None,
-                "aborted": False,
-            }
+            self._requests[event.request_id] = ASGIRequest(
+                id=event.request_id,
+                input_queue=asyncio.Queue()
+            )
 
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req["scope"] = self._build_scope(
+                req.scope = self._build_scope(
                     event.request_id, event.params)
-                req["task"] = asyncio.create_task(self._run_app(req))
+                req.task = asyncio.create_task(self._run_app(req))
 
         elif isinstance(event, StdinReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req["input_queue"].put_nowait({
+                req.input_queue.put_nowait({
                     "type": "http.request",
                     "body": event.data,
                     "more_body": True,
@@ -60,7 +69,7 @@ class ASGIAdapter:
         elif isinstance(event, EndOfStdin):
             req = self._requests.get(event.request_id)
             if req:
-                req["input_queue"].put_nowait({
+                req.input_queue.put_nowait({
                     "type": "http.request",
                     "body": b"",
                     "more_body": False,
@@ -80,11 +89,11 @@ class ASGIAdapter:
 
     def _abort_request(self, request_id: int):
         req = self._requests.get(request_id)
-        if req and not req["aborted"]:
-            req["aborted"] = True
-            req["input_queue"].put_nowait({"type": "http.disconnect"})
-            if req["task"]:
-                req["task"].cancel()
+        if req and not req.aborted:
+            req.aborted = True
+            req.input_queue.put_nowait({"type": "http.disconnect"})
+            if req.task:
+                req.task.cancel()
 
     def close_all(self):
         """Abort all active requests in this connection."""
@@ -123,18 +132,18 @@ class ASGIAdapter:
             "server": (p.get("SERVER_NAME", ""), int(p.get("SERVER_PORT", 0))),
         }
 
-    async def _run_app(self, req: Dict[str, Any]):
-        request_id = req["id"]
+    async def _run_app(self, req: ASGIRequest):
+        request_id = req.id
 
         async def receive():
-            return await req["input_queue"].get()
+            return await req.input_queue.get()
 
         async def send(message):
-            if req["aborted"]:
+            if req.aborted:
                 return
             try:
                 if message["type"] == "http.response.start":
-                    req["response_started"] = True
+                    req.response_started = True
                     status = message["status"]
                     headers = message.get("headers", [])
                     res = [f"Status: {status}\r\n".encode('latin-1')]
@@ -156,11 +165,11 @@ class ASGIAdapter:
                 self._abort_request(request_id)
 
         try:
-            await self.app(req["scope"], receive, send)
+            await self.app(req.scope, receive, send)
         except asyncio.CancelledError:
             pass
         except Exception:
-            if not req.get("response_started", False) and not req["aborted"]:
+            if not req.response_started and not req.aborted:
                 try:
                     await send({
                         "type": "http.response.start",

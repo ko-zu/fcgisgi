@@ -5,7 +5,8 @@ import queue
 import socket
 import asyncio
 import logging
-from typing import Callable, Dict, Any, List, Optional
+from dataclasses import dataclass, field
+from typing import Callable, Dict, Any, List, Optional, Tuple
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
     EndOfStdin, AbortRequest, Event, GetValues, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
@@ -83,6 +84,17 @@ class WSGIErrors:
         pass
 
 
+@dataclass
+class WSGIRequest:
+    id: int
+    stdin: 'WSGIInput'
+    params: Dict[str, str] = field(default_factory=dict)
+    thread: Optional[threading.Thread] = None
+    headers_set: Optional[Tuple[str, List[Tuple[str, str]]]] = None
+    response_started: bool = False
+    aborted: bool = False
+
+
 class WSGIAdapter:
     def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, force_script_name: Optional[str] = None):
         self.application = application
@@ -90,7 +102,7 @@ class WSGIAdapter:
         self.spawn_func = spawn_func
         self.call_soon_func = call_soon_func
         self.fcgi = FastCGIConnection()
-        self._requests: Dict[int, Dict[str, Any]] = {}
+        self._requests: Dict[int, WSGIRequest] = {}
         self.force_script_name = force_script_name
 
     def handle_data(self, data: bytes, send_func: Any = None):
@@ -105,33 +117,27 @@ class WSGIAdapter:
                     event.request_id, 0, 3))
                 return
 
-            stdin = WSGIInput()
-            self._requests[event.request_id] = {
-                "id": event.request_id,
-                "params": {},
-                "stdin": stdin,
-                "thread": None,
-                "headers_set": False,
-                "response_started": False,
-                "aborted": False,
-            }
+            self._requests[event.request_id] = WSGIRequest(
+                id=event.request_id,
+                stdin=WSGIInput()
+            )
 
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req["params"] = {k.decode('latin-1'): v.decode('latin-1')
-                                 for k, v in event.params.items()}
-                req["thread"] = self.spawn_func(self._run_app, (req,))
+                req.params = {k.decode('latin-1'): v.decode('latin-1')
+                              for k, v in event.params.items()}
+                req.thread = self.spawn_func(self._run_app, (req,))
 
         elif isinstance(event, StdinReceived):
             req = self._requests.get(event.request_id)
             if req:
-                self.spawn_func(req["stdin"].put, (event.data,))
+                self.spawn_func(req.stdin.put, (event.data,))
 
         elif isinstance(event, EndOfStdin):
             req = self._requests.get(event.request_id)
             if req:
-                self.spawn_func(req["stdin"].put_eof, ())
+                self.spawn_func(req.stdin.put_eof, ())
 
         elif isinstance(event, AbortRequest):
             self._abort_request(event.request_id)
@@ -146,9 +152,9 @@ class WSGIAdapter:
 
     def _abort_request(self, request_id: int):
         req = self._requests.get(request_id)
-        if req and not req["aborted"]:
-            req["aborted"] = True
-            self.spawn_func(req["stdin"].abort, ())
+        if req and not req.aborted:
+            req.aborted = True
+            self.spawn_func(req.stdin.abort, ())
 
     def close_all(self):
         for rid in list(self._requests.keys()):
@@ -157,14 +163,14 @@ class WSGIAdapter:
     def close_connection(self, send_func: Any = None):
         self.close_all()
 
-    def _run_app(self, req: Dict[str, Any]):
-        request_id = req["id"]
-        environ = req["params"]
+    def _run_app(self, req: WSGIRequest):
+        request_id = req.id
+        environ = req.params
 
         environ['wsgi.version'] = (1, 0)
         environ['wsgi.url_scheme'] = environ.get(
             'HTTPS', 'off') in ('on', '1') and 'https' or 'http'
-        environ['wsgi.input'] = io.BufferedReader(req["stdin"])
+        environ['wsgi.input'] = io.BufferedReader(req.stdin)
         environ['wsgi.errors'] = WSGIErrors(self, request_id)
         environ['wsgi.multithread'] = True
         environ['wsgi.multiprocess'] = False
@@ -179,9 +185,9 @@ class WSGIAdapter:
 
         def start_response(status, response_headers, exc_info=None):
             if exc_info:
-                if req["response_started"]:
+                if req.response_started:
                     raise exc_info[1].with_traceback(exc_info[2])
-            req["headers_set"] = (status, response_headers)
+            req.headers_set = (status, response_headers)
             return lambda data: self._write(req, data)
 
         result = None
@@ -190,15 +196,15 @@ class WSGIAdapter:
             for data in result:
                 if data:
                     self._write(req, data)
-                if req["aborted"]:
+                if req.aborted:
                     break
-            if not req["response_started"] and not req["aborted"]:
+            if not req.response_started and not req.aborted:
                 self._write(req, b"")
         except WSGIAbortError:
             pass
         except Exception as e:
             logger.exception("Exception in WSGI application")
-            if not req["response_started"] and not req["aborted"]:
+            if not req.response_started and not req.aborted:
                 try:
                     start_response('500 Internal Server Error', [
                                    ('Content-Type', 'text/plain')])
@@ -212,7 +218,7 @@ class WSGIAdapter:
                 except Exception:
                     logger.exception("Exception calling result.close()")
 
-            if not req["aborted"]:
+            if not req.aborted:
                 try:
                     self.send_func(self.fcgi.send_stdout(request_id, b""))
                     self.send_func(self.fcgi.send_end_request(
@@ -222,25 +228,25 @@ class WSGIAdapter:
 
             self.call_soon_func(self._requests.pop, request_id, None)
 
-    def _write(self, req: Dict[str, Any], data: Any):
-        if req["aborted"]:
+    def _write(self, req: WSGIRequest, data: Any):
+        if req.aborted:
             raise WSGIAbortError("Request aborted")
 
         # Convert str to bytes if necessary (WSGI spec allows str in some cases)
         if isinstance(data, str):
             data = data.encode('latin-1')
 
-        request_id = req["id"]
+        request_id = req.id
         try:
-            if not req["response_started"]:
-                status, headers = req["headers_set"]
+            if not req.response_started:
+                status, headers = req.headers_set
                 res = [f"Status: {status}\r\n".encode('latin-1')]
                 for name, value in headers:
                     res.append(f"{name}: {value}\r\n".encode('latin-1'))
                 res.append(b"\r\n")
                 self.send_func(self.fcgi.send_stdout(
                     request_id, b"".join(res)))
-                req["response_started"] = True
+                req.response_started = True
 
             if data:
                 self.send_func(self.fcgi.send_stdout(request_id, data))
