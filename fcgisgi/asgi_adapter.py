@@ -125,6 +125,9 @@ class ASGIAdapter:
             "scheme": p.get(b'HTTPS') in (b'on', b'1') and 'https' or 'http',
             "client": (p.get(b"REMOTE_ADDR", b"").decode('latin-1'), int(p.get(b"REMOTE_PORT", 0))),
             "server": (p.get(b"SERVER_NAME", b"").decode('latin-1'), int(p.get(b"SERVER_PORT", 0))),
+            "extensions": {
+                "fcgisgi": {"fcgi_params": list(params)},
+            },
         }
 
         if self.force_script_name is not None:

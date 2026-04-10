@@ -82,6 +82,14 @@ class TestASGIScope(unittest.TestCase):
         scope = self.adapter._build_scope(1, params)
         self.assertEqual(scope["method"], "POST")
 
+    def test_fcgi_params_extension(self):
+        params = [(b"VAR1", b"val1"), (b"VAR2", b"val2")]
+        scope = self.adapter._build_scope(1, params)
+        
+        self.assertIn("extensions", scope)
+        self.assertIn("fcgisgi", scope["extensions"])
+        self.assertEqual(scope["extensions"]["fcgisgi"]["fcgi_params"], params)
+
     def test_http_version_normalization(self):
         # HTTP/1.1 -> 1.1
         scope = self.adapter._build_scope(1, [(b"SERVER_PROTOCOL", b"HTTP/1.1")])
