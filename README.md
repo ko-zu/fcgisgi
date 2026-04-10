@@ -96,5 +96,23 @@ if __name__ == "__main__":
     asyncio.run(run_asgi_server(app, force_script_name=""))
 ```
 
+## Configuration
+
+You can pass additional configuration parameters to `run_asgi_server` or `run_wsgi_server` via keyword arguments:
+
+- `startup_timeout` (float): Timeout for ASGI lifespan startup (default: `55.0`).
+- `shutdown_timeout` (float): Timeout for graceful shutdown on SIGTERM (default: `55.0`).
+- `max_workers` (int): Maximum number of worker threads for WSGI applications (passed to `ThreadPoolExecutor`).
+- `force_script_name` (str): Override the `SCRIPT_NAME` (WSGI) or `root_path` (ASGI) parameter. Useful for normalizing routing behind a prefix.
+
+Example:
+```python
+asyncio.run(run_asgi_server(
+    app, 
+    startup_timeout=30.0, 
+    shutdown_timeout=30.0
+))
+```
+
 ## License
 MIT

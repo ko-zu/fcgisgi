@@ -120,7 +120,7 @@ class Server:
             self._lifespan_task = asyncio.create_task(self._run_lifespan())
             await self._lifespan_queue.put({"type": "lifespan.startup"})
             try:
-                timeout = self.kwargs.get('startup_timeout', 10.0)
+                timeout = self.kwargs.get('startup_timeout', 55.0)
                 await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.error("ASGI Lifespan startup timed out")
@@ -198,7 +198,7 @@ class Server:
             server.close()
             await server.wait_closed()
 
-            shutdown_timeout = self.kwargs.get('shutdown_timeout', 10.0)
+            shutdown_timeout = self.kwargs.get('shutdown_timeout', 55.0)
             if self.is_asgi:
                 await self._lifespan_queue.put({"type": "lifespan.shutdown"})
                 try:
