@@ -114,6 +114,12 @@ class ASGIAdapter:
         raw_path = p.get("PATH_INFO", "").encode('latin-1')
         path = urllib.parse.unquote(raw_path)
         query_string = p.get("QUERY_STRING", "").encode('latin-1')
+        http_version = p.get("SERVER_PROTOCOL", "HTTP/1.1").split("/")[-1]
+        if http_version in ("2.0", "3.0"):
+            http_version = http_version[0]
+        elif http_version not in ("1.0", "1.1", "2", "3"):
+            http_version = "1.1"
+
         headers = []
         for k, v in params:
             k_str = k.decode('latin-1')
@@ -128,7 +134,7 @@ class ASGIAdapter:
         return {
             "type": "http",
             "asgi": {"version": "3.0", "spec_version": "2.0"},
-            "http_version": p.get("SERVER_PROTOCOL", "HTTP/1.1").split("/")[-1],
+            "http_version": http_version,
             "method": method,
             "scheme": p.get('HTTPS', 'off') in ('on', '1') and 'https' or 'http',
             "path": path,

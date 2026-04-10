@@ -65,5 +65,22 @@ class TestASGIScope(unittest.TestCase):
         scope = self.adapter._build_scope(1, params)
         self.assertEqual(scope["method"], "POST")
 
+    def test_http_version_normalization(self):
+        # HTTP/1.1 -> 1.1
+        scope = self.adapter._build_scope(1, [(b"SERVER_PROTOCOL", b"HTTP/1.1")])
+        self.assertEqual(scope["http_version"], "1.1")
+
+        # HTTP/2.0 -> 2
+        scope = self.adapter._build_scope(1, [(b"SERVER_PROTOCOL", b"HTTP/2.0")])
+        self.assertEqual(scope["http_version"], "2")
+
+        # HTTP/3.0 -> 3
+        scope = self.adapter._build_scope(1, [(b"SERVER_PROTOCOL", b"HTTP/3.0")])
+        self.assertEqual(scope["http_version"], "3")
+
+        # Unknown -> 1.1 default
+        scope = self.adapter._build_scope(1, [(b"SERVER_PROTOCOL", b"FOO/BAR")])
+        self.assertEqual(scope["http_version"], "1.1")
+
 if __name__ == "__main__":
     unittest.main()
