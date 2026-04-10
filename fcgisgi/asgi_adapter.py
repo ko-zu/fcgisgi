@@ -120,7 +120,7 @@ class ASGIAdapter:
             "type": "http",
             "asgi": {"version": "3.0", "spec_version": "2.0"},
             "method": p.get(b"REQUEST_METHOD", b"GET").decode('latin-1'),
-            "path": p.get(b"PATH_INFO", b"").decode("utf-8", "replace"),
+            "path": p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape"),
             "query_string": p.get(b"QUERY_STRING", b""),
             "scheme": p.get(b'HTTPS') in (b'on', b'1') and 'https' or 'http',
             "client": (p.get(b"REMOTE_ADDR", b"").decode('latin-1'), int(p.get(b"REMOTE_PORT", 0))),
@@ -134,7 +134,7 @@ class ASGIAdapter:
             scope["root_path"] = self.force_script_name
         else:
             scope["root_path"] = p.get(
-                b"SCRIPT_NAME", b"").decode("utf-8", "replace")
+                b"SCRIPT_NAME", b"").decode("utf-8", "surrogateescape")
 
         # 'raw_path' is an optional ASGI field. We can only reliably extract it from
         # REQUEST_URI when the app is mounted at the root (SCRIPT_NAME is empty),
@@ -155,13 +155,11 @@ class ASGIAdapter:
         # Headers are converted from HTTP_VAR_NAME to header-name format.
         headers = []
         for k, v in params:
-            k_str = k.decode('latin-1')
-            if k_str.startswith("HTTP_"):
-                header_name = k_str[5:].replace(
-                    "_", "-").lower().encode('latin-1')
+            if k.startswith(b"HTTP_"):
+                header_name = k[5:].replace(b"_", b"-").lower()
                 headers.append((header_name, v))
-            elif k_str in ("CONTENT_TYPE", "CONTENT_LENGTH"):
-                header_name = k_str.replace("_", "-").lower().encode('latin-1')
+            elif k in (b"CONTENT_TYPE", b"CONTENT_LENGTH"):
+                header_name = k.replace(b"_", b"-").lower()
                 headers.append((header_name, v))
         scope["headers"] = headers
         return scope
