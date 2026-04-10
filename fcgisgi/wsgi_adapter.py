@@ -151,8 +151,8 @@ class WSGIAdapter:
                     k = k_bytes.decode('latin-1')
                     v = v_bytes.decode('latin-1')
 
-                    if k.startswith("HTTP_") or k in ("CONTENT_TYPE", "CONTENT_LENGTH"):
-                        header_key = k[5:] if k.startswith("HTTP_") else k
+                    if k.startswith("HTTP_"):
+                        header_key = k[5:]
                         if header_key in discard_headers:
                             if k not in environ:
                                 environ[k] = v
@@ -168,7 +168,8 @@ class WSGIAdapter:
                                 environ[k] = v
                     else:
                         # Non-header params (REQUEST_METHOD, etc.)
-                        environ[k] = v
+                        if k not in environ:
+                            environ[k] = v
 
                 req.params = environ
                 req.thread = self.spawn_func(self._run_app, (req,))
@@ -217,7 +218,7 @@ class WSGIAdapter:
         environ['wsgi.input'] = io.BufferedReader(req.stdin)
         environ['wsgi.errors'] = WSGIErrors(self, request_id)
         environ['wsgi.multithread'] = True
-        environ['wsgi.multiprocess'] = False
+        environ['wsgi.multiprocess'] = True
         environ['wsgi.run_once'] = False
 
         if self.force_script_name is not None:
