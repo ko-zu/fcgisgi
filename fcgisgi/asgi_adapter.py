@@ -108,17 +108,39 @@ class ASGIAdapter:
             self._abort_request(request_id)
 
     def _build_scope(self, request_id: int, params: List[Tuple[bytes, bytes]]) -> Dict[str, Any]:
-        p = {k.decode('latin-1'): v.decode('latin-1')
-             for k, v in reversed(params)}
-        method = p.get("REQUEST_METHOD", "GET")
-        raw_path = p.get("PATH_INFO", "").encode('latin-1')
-        path = urllib.parse.unquote(raw_path)
-        query_string = p.get("QUERY_STRING", "").encode('latin-1')
-        http_version = p.get("SERVER_PROTOCOL", "HTTP/1.1").split("/")[-1]
+        p = dict(reversed(params))
+
+        # Expect
+        # percent-decoded utf-8: SCRIPT_NAME, PATH_INFO
+        # percent-encoded ascii: QUERY_STRING, REQUEST_URI
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.0"},
+            "method": p.get(b"REQUEST_METHOD", b"GET").decode('latin-1'),
+            "path": p.get(b"PATH_INFO", b"").decode("utf-8", "replace"),
+            "query_string": p.get(b"QUERY_STRING", b""),
+            "scheme": p.get(b'HTTPS') in (b'on', b'1') and 'https' or 'http',
+            "client": (p.get(b"REMOTE_ADDR", b"").decode('latin-1'), int(p.get(b"REMOTE_PORT", 0))),
+            "server": (p.get(b"SERVER_NAME", b"").decode('latin-1'), int(p.get(b"SERVER_PORT", 0))),
+        }
+
+        if self.force_script_name is not None:
+            scope["root_path"] = self.force_script_name
+        else:
+            scope["root_path"] = p.get(
+                b"SCRIPT_NAME", b"").decode("utf-8", "replace")
+
+        # raw_path can be calculated only when mounted as root
+        if b"REQUEST_URI" in p and scope["root_path"] == "":
+            scope["raw_path"] = p[b"REQUEST_URI"].split(b"?", 1)[0]
+
+        http_version = p.get(b"SERVER_PROTOCOL",
+                             b"HTTP/1.1").decode('latin-1').split("/")[-1]
         if http_version in ("2.0", "3.0"):
             http_version = http_version[0]
         elif http_version not in ("1.0", "1.1", "2", "3"):
             http_version = "1.1"
+        scope["http_version"] = http_version
 
         headers = []
         for k, v in params:
@@ -130,21 +152,8 @@ class ASGIAdapter:
             elif k_str in ("CONTENT_TYPE", "CONTENT_LENGTH"):
                 header_name = k_str.replace("_", "-").lower().encode('latin-1')
                 headers.append((header_name, v))
-
-        return {
-            "type": "http",
-            "asgi": {"version": "3.0", "spec_version": "2.0"},
-            "http_version": http_version,
-            "method": method,
-            "scheme": p.get('HTTPS', 'off') in ('on', '1') and 'https' or 'http',
-            "path": path,
-            "raw_path": raw_path,
-            "query_string": query_string,
-            "root_path": self.force_script_name if self.force_script_name is not None else p.get("SCRIPT_NAME", ""),
-            "headers": headers,
-            "client": (p.get("REMOTE_ADDR", ""), int(p.get("REMOTE_PORT", 0))),
-            "server": (p.get("SERVER_NAME", ""), int(p.get("SERVER_PORT", 0))),
-        }
+        scope["headers"] = headers
+        return scope
 
     async def _run_app(self, req: ASGIRequest):
         request_id = req.id

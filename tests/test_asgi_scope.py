@@ -5,18 +5,35 @@ class TestASGIScope(unittest.TestCase):
     def setUp(self):
         self.adapter = ASGIAdapter(lambda s, r, send: None, lambda d: None, on_close=lambda: None)
 
-    def test_path_unquoting(self):
-        # Path with percent encoding
+    def test_path_decoding(self):
+        # Path with percent encoded utf-8
         params = [
             (b"REQUEST_METHOD", b"GET"),
-            (b"PATH_INFO", b"/hello%20world%21"),
-            (b"QUERY_STRING", b"a=b"),
+            (b"PATH_INFO", "/hello 世界!".encode("utf-8")),
+            (b"REQUEST_URI", b"/hello%20%e4%b8%96%e7%95%8c%21?a=%e3%81%82"),
+            (b"QUERY_STRING", b"a=%e3%81%82"),
         ]
         scope = self.adapter._build_scope(1, params)
-        
-        self.assertEqual(scope["path"], "/hello world!")
-        self.assertEqual(scope["raw_path"], b"/hello%20world%21")
-        self.assertEqual(scope["query_string"], b"a=b")
+
+        self.assertEqual(scope["root_path"], "")
+        self.assertEqual(scope["path"], "/hello 世界!")
+        self.assertEqual(scope["raw_path"], b"/hello%20%e4%b8%96%e7%95%8c%21")
+        self.assertEqual(scope["query_string"], b"a=%e3%81%82")
+
+    def test_path_decoding_with_scriptname(self):
+        params = [
+            (b"REQUEST_METHOD", b"GET"),
+            (b"PATH_INFO", "/hello 世界!".encode("utf-8")),
+            (b"REQUEST_URI", b"/%e3%81%82.py/hello%20%e4%b8%96%e7%95%8c%21?a=%e3%81%82"),
+            (b"QUERY_STRING", b"a=%e3%81%82"),
+            (b"SCRIPT_NAME", "/あ.py".encode("utf-8")),
+        ]
+        scope = self.adapter._build_scope(1, params)
+
+        self.assertEqual(scope["root_path"], "/あ.py")
+        self.assertEqual(scope["path"], "/hello 世界!")
+        self.assertNotIn("raw_path", scope)
+        self.assertEqual(scope["query_string"], b"a=%e3%81%82")
 
     def test_scheme_detection(self):
         # HTTP
@@ -44,14 +61,14 @@ class TestASGIScope(unittest.TestCase):
             (b"HTTP_X_CUSTOM", b"val2"),
         ]
         scope = self.adapter._build_scope(1, params)
-        
+
         headers = scope["headers"]
         # Should contain two separate cookie entries and two custom entries
         self.assertIn((b"cookie", b"session=123"), headers)
         self.assertIn((b"cookie", b"user=abc"), headers)
         self.assertIn((b"x-custom", b"val1"), headers)
         self.assertIn((b"x-custom", b"val2"), headers)
-        
+
         # Verify order/count
         self.assertEqual(len([h for h in headers if h[0] == b"cookie"]), 2)
         self.assertEqual(len([h for h in headers if h[0] == b"x-custom"]), 2)
