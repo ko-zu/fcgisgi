@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Any, List, Optional, Tuple
+import urllib.parse
 
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
@@ -110,7 +111,8 @@ class ASGIAdapter:
         p = {k.decode('latin-1'): v.decode('latin-1')
              for k, v in reversed(params)}
         method = p.get("REQUEST_METHOD", "GET")
-        path = p.get("PATH_INFO", "")
+        raw_path = p.get("PATH_INFO", "").encode('latin-1')
+        path = urllib.parse.unquote(raw_path)
         query_string = p.get("QUERY_STRING", "").encode('latin-1')
         headers = []
         for k, v in params:
@@ -128,9 +130,9 @@ class ASGIAdapter:
             "asgi": {"version": "3.0", "spec_version": "2.0"},
             "http_version": p.get("SERVER_PROTOCOL", "HTTP/1.1").split("/")[-1],
             "method": method,
-            "scheme": p.get("wsgi.url_scheme", "http"),
+            "scheme": p.get('HTTPS', 'off') in ('on', '1') and 'https' or 'http',
             "path": path,
-            "raw_path": p.get("REQUEST_URI", path).split("?")[0].encode('latin-1'),
+            "raw_path": raw_path,
             "query_string": query_string,
             "root_path": self.force_script_name if self.force_script_name is not None else p.get("SCRIPT_NAME", ""),
             "headers": headers,
