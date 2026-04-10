@@ -108,11 +108,14 @@ class ASGIAdapter:
             self._abort_request(request_id)
 
     def _build_scope(self, request_id: int, params: List[Tuple[bytes, bytes]]) -> Dict[str, Any]:
+        # Use reversed() before dict() to ensure that if duplicate keys exist for metadata
+        # (like REQUEST_METHOD), the FIRST occurrence in the original params list is prioritized.
         p = dict(reversed(params))
 
-        # Expect
-        # percent-decoded utf-8: SCRIPT_NAME, PATH_INFO
-        # percent-encoded ascii: QUERY_STRING, REQUEST_URI
+        # According to CGI spec:
+        # - SCRIPT_NAME and PATH_INFO are expected to be percent-decoded (usually UTF-8).
+        # - QUERY_STRING and REQUEST_URI are usually raw percent-encoded ASCII/latin-1.
+        # ASGI expects 'path' to be a decoded string and 'raw_path' to be the original bytes.
         scope = {
             "type": "http",
             "asgi": {"version": "3.0", "spec_version": "2.0"},
@@ -130,10 +133,13 @@ class ASGIAdapter:
             scope["root_path"] = p.get(
                 b"SCRIPT_NAME", b"").decode("utf-8", "replace")
 
-        # raw_path can be calculated only when mounted as root
+        # 'raw_path' is an optional ASGI field. We can only reliably extract it from
+        # REQUEST_URI when the app is mounted at the root (SCRIPT_NAME is empty),
+        # because PATH_INFO does not include the SCRIPT_NAME portion of the original URL.
         if b"REQUEST_URI" in p and scope["root_path"] == "":
             scope["raw_path"] = p[b"REQUEST_URI"].split(b"?", 1)[0]
 
+        # Normalize HTTP version string to follow ASGI spec (e.g., "1.1", "2", "3")
         http_version = p.get(b"SERVER_PROTOCOL",
                              b"HTTP/1.1").decode('latin-1').split("/")[-1]
         if http_version in ("2.0", "3.0"):
@@ -142,6 +148,8 @@ class ASGIAdapter:
             http_version = "1.1"
         scope["http_version"] = http_version
 
+        # Process headers: Preserve all duplicate headers as per ASGI spec.
+        # Headers are converted from HTTP_VAR_NAME to header-name format.
         headers = []
         for k, v in params:
             k_str = k.decode('latin-1')
