@@ -92,8 +92,8 @@ async def app(scope, receive, send):
     """ SNIP """
 
 if __name__ == "__main__":
-    # Specify the mount point (e.g., "/" if mounted at the root)
-    asyncio.run(run_asgi_server(app, force_script_name="/"))
+    # Specify the mount point (e.g., "" if mounted at the root)
+    asyncio.run(run_asgi_server(app, force_script_name=""))
 ```
 
 ## License
