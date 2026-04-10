@@ -71,6 +71,23 @@ class TestWSGIEnviron(unittest.TestCase):
         environ = self.adapter._requests[1].params
         self.assertEqual(environ["HTTP_X_FORWARDED_FOR"], "1.2.3.4, 5.6.7.8")
 
+    def test_path_encoding(self):
+        # PATH_INFO should be decoded correctly (latin-1 for WSGI as per spec)
+        self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
+        utf8_path = "/テスト".encode("utf-8")
+        quoted_path = b"/%E3%83%86%E3%82%B9%E3%83%88"
+        params_event = ParamsReceived(1, [
+            (b"REQUEST_METHOD", b"GET"),
+            (b"PATH_INFO", utf8_path),
+            (b"REQUEST_URI", quoted_path)
+        ])
+        self.adapter.handle_event(params_event)
+
+        environ = self.adapter._requests[1].params
+        # WSGI spec (PEP 3333) says it should be latin-1 decoded bytes
+        self.assertEqual(environ["PATH_INFO"], utf8_path.decode('latin-1'))
+        self.assertEqual(environ["REQUEST_URI"], quoted_path.decode('latin-1'))
+
     def test_wsgi_flags(self):
         # Test if wsgi.multiprocess is True
         req = WSGIRequest(id=1, stdin=WSGIInput(), params={
