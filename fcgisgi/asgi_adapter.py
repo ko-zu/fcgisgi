@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional, Tuple
 
 from .sansio import (
     FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
@@ -106,14 +106,14 @@ class ASGIAdapter:
         for request_id in list(self._requests.keys()):
             self._abort_request(request_id)
 
-    def _build_scope(self, request_id: int, params: Dict[bytes, bytes]) -> Dict[str, Any]:
+    def _build_scope(self, request_id: int, params: List[Tuple[bytes, bytes]]) -> Dict[str, Any]:
         p = {k.decode('latin-1'): v.decode('latin-1')
-             for k, v in params.items()}
+             for k, v in reversed(params)}
         method = p.get("REQUEST_METHOD", "GET")
         path = p.get("PATH_INFO", "")
         query_string = p.get("QUERY_STRING", "").encode('latin-1')
         headers = []
-        for k, v in params.items():
+        for k, v in params:
             k_str = k.decode('latin-1')
             if k_str.startswith("HTTP_"):
                 header_name = k_str[5:].replace(

@@ -45,7 +45,7 @@ class TestFastCGIConnection(unittest.TestCase):
         events = conn.feed_data(header + params_content + header_eof)
         self.assertEqual(len(events), 1)
         self.assertIsInstance(events[0], ParamsReceived)
-        self.assertEqual(events[0].params, {b"NAME": b"VALUE"})
+        self.assertEqual(events[0].params, [(b"NAME", b"VALUE")])
 
     def test_stdin_received(self):
         conn = FastCGIConnection()

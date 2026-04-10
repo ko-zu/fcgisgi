@@ -131,8 +131,46 @@ class WSGIAdapter:
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req.params = {k.decode('latin-1'): v.decode('latin-1')
-                              for k, v in event.params.items()}
+                # Merge headers according to Node.js rules
+                # Discard: age, authorization, content-length, content-type, etag, expires,
+                #          from, host, if-modified-since, if-unmodified-since, last-modified,
+                #          location, max-forwards, proxy-authorization, referer, retry-after,
+                #          server, or user-agent
+                # Semicolon-join: cookie
+                # Comma-join: everything else
+
+                environ = {}
+                discard_headers = {
+                    "AGE", "AUTHORIZATION", "CONTENT_LENGTH", "CONTENT_TYPE", "ETAG", "EXPIRES",
+                    "FROM", "HOST", "IF_MODIFIED_SINCE", "IF_UNMODIFIED_SINCE", "LAST_MODIFIED",
+                    "LOCATION", "MAX_FORWARDS", "PROXY_AUTHORIZATION", "REFERER", "RETRY_AFTER",
+                    "SERVER", "USER_AGENT"
+                }
+
+                for k_bytes, v_bytes in event.params:
+                    k = k_bytes.decode('latin-1')
+                    v = v_bytes.decode('latin-1')
+
+                    if k.startswith("HTTP_") or k in ("CONTENT_TYPE", "CONTENT_LENGTH"):
+                        header_key = k[5:] if k.startswith("HTTP_") else k
+                        if header_key in discard_headers:
+                            if k not in environ:
+                                environ[k] = v
+                        elif header_key == "COOKIE":
+                            if k in environ:
+                                environ[k] += "; " + v
+                            else:
+                                environ[k] = v
+                        else:
+                            if k in environ:
+                                environ[k] += ", " + v
+                            else:
+                                environ[k] = v
+                    else:
+                        # Non-header params (REQUEST_METHOD, etc.)
+                        environ[k] = v
+
+                req.params = environ
                 req.thread = self.spawn_func(self._run_app, (req,))
 
         elif isinstance(event, StdinReceived):

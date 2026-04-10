@@ -52,7 +52,7 @@ class RequestStarted:
 @dataclass
 class ParamsReceived:
     request_id: int
-    params: Dict[bytes, bytes]
+    params: List[Tuple[bytes, bytes]]
 
 
 @dataclass
@@ -149,8 +149,8 @@ class FastCGIConnection:
 
         return None
 
-    def _decode_pairs(self, data: bytes) -> Dict[bytes, bytes]:
-        pairs = {}
+    def _decode_pairs(self, data: bytes) -> List[Tuple[bytes, bytes]]:
+        pairs = []
         pos = 0
         while pos < len(data):
             try:
@@ -174,7 +174,7 @@ class FastCGIConnection:
                 pos += name_len
                 value = bytes(data[pos: pos + value_len])
                 pos += value_len
-                pairs[name] = value
+                pairs.append((name, value))
             except (IndexError, struct.error):
                 break
         return pairs
