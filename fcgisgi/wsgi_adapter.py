@@ -131,21 +131,12 @@ class WSGIAdapter:
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
             if req:
-                # Merge headers according to Node.js rules
-                # Discard: age, authorization, content-length, content-type, etag, expires,
-                #          from, host, if-modified-since, if-unmodified-since, last-modified,
-                #          location, max-forwards, proxy-authorization, referer, retry-after,
-                #          server, or user-agent
+                # Merge headers
+                # Discard: CGI variables
                 # Semicolon-join: cookie
                 # Comma-join: everything else
 
                 environ = {}
-                discard_headers = {
-                    "AGE", "AUTHORIZATION", "CONTENT_LENGTH", "CONTENT_TYPE", "ETAG", "EXPIRES",
-                    "FROM", "HOST", "IF_MODIFIED_SINCE", "IF_UNMODIFIED_SINCE", "LAST_MODIFIED",
-                    "LOCATION", "MAX_FORWARDS", "PROXY_AUTHORIZATION", "REFERER", "RETRY_AFTER",
-                    "SERVER", "USER_AGENT"
-                }
 
                 for k_bytes, v_bytes in event.params:
                     k = k_bytes.decode('latin-1')
@@ -153,10 +144,7 @@ class WSGIAdapter:
 
                     if k.startswith("HTTP_"):
                         header_key = k[5:]
-                        if header_key in discard_headers:
-                            if k not in environ:
-                                environ[k] = v
-                        elif header_key == "COOKIE":
+                        if header_key == "COOKIE":
                             if k in environ:
                                 environ[k] += "; " + v
                             else:

@@ -32,21 +32,6 @@ class TestWSGIEnviron(unittest.TestCase):
         environ = self.adapter._requests[1].params
         self.assertEqual(environ["REQUEST_METHOD"], "POST")
 
-    def test_header_merging_discard(self):
-        # Duplicates of certain headers should be discarded (first one wins)
-        self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
-        params_event = ParamsReceived(1, [
-            (b"CONTENT_TYPE", b"application/json"),
-            (b"CONTENT_TYPE", b"text/plain"),
-            (b"HTTP_USER_AGENT", b"Mozilla/5.0"),
-            (b"HTTP_USER_AGENT", b"Curl/7.0"),
-        ])
-        self.adapter.handle_event(params_event)
-
-        environ = self.adapter._requests[1].params
-        self.assertEqual(environ["CONTENT_TYPE"], "application/json")
-        self.assertEqual(environ["HTTP_USER_AGENT"], "Mozilla/5.0")
-
     def test_header_merging_cookie(self):
         # Cookie headers should be joined with "; "
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
