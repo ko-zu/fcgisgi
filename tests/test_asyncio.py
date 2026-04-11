@@ -3,7 +3,7 @@ import asyncio
 import struct
 from unittest.mock import MagicMock
 from fcgisgi.sansio import (
-    FCGI_VERSION_1, FCGI_BEGIN_REQUEST, FCGI_PARAMS,
+    FCGI_VERSION_1, FCGI_BEGIN_REQUEST, FCGI_PARAMS, FCGI_STDIN,
     FCGI_HEADER_FORMAT, FCGI_BEGIN_REQUEST_BODY_FORMAT
 )
 from fcgisgi.asyncio_server import FastCGIASGIProtocol, Server
@@ -57,6 +57,97 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         # Verify that data was written to the transport
         self.assertIn(b"Status: 200", output)
         self.assertIn(b"OK", output)
+
+
+class TestServerProcess(unittest.IsolatedAsyncioTestCase):
+    async def test_asgi_server_subprocess(self):
+        import sys
+        import os
+        import tempfile
+        import signal
+        import subprocess
+        import time
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sock_path = os.path.join(tmpdir, "test.sock")
+            app_path = os.path.join(tmpdir, "app.py")
+
+            # Create a minimal server script
+            with open(app_path, "w") as f:
+                f.write(f"""
+import asyncio
+import logging
+import sys
+from fcgisgi import run_asgi_server
+
+logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+logger = logging.getLogger("test-app")
+
+async def app(scope, receive, send):
+    if scope['type'] == 'http':
+        await send({{'type': 'http.response.start', 'status': 200, 'headers': []}})
+        await send({{'type': 'http.response.body', 'body': b'process-ok'}})
+
+if __name__ == "__main__":
+    logger.info("Starting server")
+    try:
+        asyncio.run(run_asgi_server(app, bind_address={repr(sock_path)}))
+    finally:
+        logger.info("Server exited")
+""")
+
+            # Launch the server process
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.getcwd()
+            proc = subprocess.Popen(
+                [sys.executable, app_path],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            # Wait for socket
+            start = time.time()
+            while not os.path.exists(sock_path) and time.time() - start < 5.0:
+                await asyncio.sleep(0.1)
+                if proc.poll() is not None:
+                    stdout, stderr = proc.communicate()
+                    self.fail(f"Server process exited prematurely with code {proc.returncode}\nStderr: {stderr.decode()}")
+
+            self.assertTrue(os.path.exists(sock_path))
+
+            # Connect and verify
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_unix_connection(sock_path),
+                    timeout=2.0
+                )
+
+                # Simple FCGI request
+                content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
+                header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
+                writer.write(header + content + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0) + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_STDIN, 1, 0, 0))
+                await writer.drain()
+
+                response = await asyncio.wait_for(reader.read(1024), timeout=2.0)
+                self.assertIn(b"process-ok", response)
+
+                writer.close()
+                await writer.wait_closed()
+            finally:
+                # Graceful shutdown
+                proc.send_signal(signal.SIGTERM)
+
+                # Wait for process to exit
+                try:
+                    # Python 3.9+ supports timeout in communicate
+                    stdout, stderr = proc.communicate(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    stdout, stderr = proc.communicate()
+                    self.fail(f"Server process did not exit gracefully on SIGTERM\nStderr: {stderr.decode()}")
+
+                self.assertEqual(proc.returncode, 0)
 
 
 if __name__ == "__main__":
