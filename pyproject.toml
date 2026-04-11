@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fcgisgi"
+license = "MIT"
 version = "0.1.0"
 authors = [
   { name="ko-zu", email="causeless@gmail.com" },
@@ -13,7 +14,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Framework :: AsyncIO",
 ]

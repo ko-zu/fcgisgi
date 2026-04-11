@@ -1,11 +1,11 @@
 # fcgisgi
 
-A FastCGI to ASGI/WSGI adapter using Python's `asyncio`.
+A FastCGI-to-ASGI/WSGI adapter powered by Python's `asyncio`.
 
 ## Features
--   FastCGI to ASGI adapter.
--   FastCGI to WSGI adapter (via thread pool).
--   `asyncio` based server implementation.
+-   FastCGI-to-ASGI adapter.
+-   FastCGI-to-WSGI adapter (via thread pool).
+-   `asyncio`-based server implementation.
 -   Sans-IO FastCGI protocol implementation.
 
 ## Installation
@@ -40,7 +40,8 @@ if __name__ == "__main__":
     asyncio.run(run_asgi_server(app, bind_address=("127.0.0.1", 9000)))
     # asyncio.run(run_asgi_server(app, bind_address="/var/run/fcgisgi.sock"))
 
-    # Or, use FastCGI default socket fd=0 supplied from httpd.
+    # Alternatively, use the default FastCGI socket (fd=0) inherited from
+    # the parent process (e.g., Apache mod_fcgid).
     # asyncio.run(run_asgi_server(app))
 ```
 
@@ -60,10 +61,11 @@ if __name__ == "__main__":
 
 ### Using mod_fcgid
 
-When using Apache with `mod_fcgid`, the `SCRIPT_NAME` parameter often includes the FastCGI script filename (e.g., `/index.fcgi`), which can interfere with the routing of your application.
+When using Apache with `mod_fcgid`, the `SCRIPT_NAME` parameter often includes the FastCGI script filename (e.g., `/index.fcgi`), which can interfere with your application's routing.
 
-Use the `force_script_name` option to override the mount point (root path) of your application, ensuring the routing engine receives the correct path.
+Use the `force_script_name` option to override the mount point (root path) of your application, ensuring the routing engine receives the expected path.
 
+.htaccess
 ```shell
 ### .htaccess 
 AddHandler fcgid-script .fcgi
@@ -72,9 +74,12 @@ RewriteBase /
 # Static files
 RewriteRule ^(static|assets|\.well-known)/ - [L]
 RewriteRule ^(favicon\.ico|robots\.txt)$ - [L]
-# Route everything else
+# Route everything else to the fcgi script
 RewriteRule ^.* index.fcgi/$0 [QSA,END]
+```
 
+index.fcgi
+```shell
 ### index.fcgi
 #!/bin/sh
 PATH=/path/to/venv/bin:$PATH
@@ -82,9 +87,8 @@ export PATH
 exec python entrypoint.py
 ```
 
+entrypoint.py
 ```python
-### entrypoint.py
-
 import asyncio
 from fcgisgi import run_asgi_server
 
@@ -113,6 +117,19 @@ asyncio.run(run_asgi_server(
     shutdown_timeout=30.0
 ))
 ```
+
+## FCGI_PARAMS
+
+The original `FCGI_PARAMS` passed from the web server can be retrieved as a list of `(bytes, bytes)` key-value pairs, preserving their original order and any duplicates.
+
+- **ASGI**: `scope['extensions']['fcgisgi']['fcgi_params']` in the `http.request` scope.
+- **WSGI**: `environ['fcgisgi.fcgi_params']` in the `environ` dictionary.
+
+
+## References
+- ASGI Specification: https://asgi.readthedocs.io/
+- WSGI Specification (PEP 3333): https://peps.python.org/pep-3333/
+- FastCGI Specification: https://fastcgi-archives.github.io/FastCGI_Specification.html
 
 ## License
 MIT
