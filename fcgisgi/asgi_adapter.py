@@ -21,7 +21,7 @@ class ASGIRequest:
 
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None], on_close: Callable[[], None], startup_complete: bool = True, force_script_name: Optional[str] = None):
+    def __init__(self, app: Callable, send_func: Callable[[bytes], None], on_close: Callable[[], None], startup_complete: bool = True, force_script_name: Optional[str] = None, lifespan_state: Optional[Dict[str, Any]] = None):
         self.app = app
         self.send_func = send_func
         self.on_close = on_close
@@ -30,6 +30,7 @@ class ASGIAdapter:
         self._keep_conn = True
         self._startup_complete = startup_complete
         self.force_script_name = force_script_name
+        self.lifespan_state = lifespan_state or {}
 
     def handle_data(self, data: bytes):
         events = self.fcgi.feed_data(data)
@@ -125,6 +126,7 @@ class ASGIAdapter:
             "scheme": p.get(b'HTTPS') in (b'on', b'1') and 'https' or 'http',
             "client": (p.get(b"REMOTE_ADDR", b"").decode('latin-1'), int(p.get(b"REMOTE_PORT", 0))),
             "server": (p.get(b"SERVER_NAME", b"").decode('latin-1'), int(p.get(b"SERVER_PORT", 0))),
+            "state": self.lifespan_state.copy(),
             "extensions": {
                 "fcgisgi": {"fcgi_params": list(params)},
             },

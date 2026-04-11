@@ -29,7 +29,8 @@ class FastCGIASGIProtocol(asyncio.Protocol):
             self.transport.write,
             on_close=self.transport.close,
             startup_complete=self.server.startup_complete,
-            force_script_name=self.server.force_script_name
+            force_script_name=self.server.force_script_name,
+            lifespan_state=self.server.lifespan_state
         )
 
     def data_received(self, data):
@@ -109,6 +110,7 @@ class Server:
         self._startup_event = asyncio.Event()
         self._shutdown_event = asyncio.Event()
         self.protocols = set()
+        self.lifespan_state = {}
 
     async def run(self, bind_address: Union[str, Tuple[str, int], None] = None):
         self.loop = asyncio.get_running_loop()
@@ -214,8 +216,11 @@ class Server:
                     logger.error("WSGI thread pool shutdown timed out")
 
     async def _run_lifespan(self):
-        scope = {"type": "lifespan", "asgi": {
-            "version": "3.0", "spec_version": "2.0"}}
+        scope = {
+            "type": "lifespan",
+            "asgi": {"version": "3.0", "spec_version": "2.0"},
+            "state": self.lifespan_state
+        }
 
         async def receive():
             try:
