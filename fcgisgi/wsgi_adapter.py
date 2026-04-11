@@ -89,6 +89,7 @@ class WSGIRequest:
     id: int
     stdin: 'WSGIInput'
     params: Dict[str, str] = field(default_factory=dict)
+    params_list: List[Tuple[bytes, bytes]] = field(default_factory=list)
     thread: Optional[threading.Thread] = None
     headers_set: Optional[Tuple[str, List[Tuple[str, str]]]] = None
     response_started: bool = False
@@ -160,6 +161,7 @@ class WSGIAdapter:
                             environ[k] = v
 
                 req.params = environ
+                req.params_list = list(event.params)
                 req.thread = self.spawn_func(self._run_app, (req,))
 
         elif isinstance(event, StdinReceived):
@@ -208,6 +210,7 @@ class WSGIAdapter:
         environ['wsgi.multithread'] = True
         environ['wsgi.multiprocess'] = True
         environ['wsgi.run_once'] = False
+        environ['fcgisgi.fcgi_params'] = req.params_list
 
         if self.force_script_name is not None:
             environ['SCRIPT_NAME'] = self.force_script_name

@@ -32,6 +32,30 @@ class TestWSGIEnviron(unittest.TestCase):
         environ = self.adapter._requests[1].params
         self.assertEqual(environ["REQUEST_METHOD"], "POST")
 
+    def test_fcgi_params_extension(self):
+        # Raw params should be preserved as list of (bytes, bytes)
+        self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
+        raw_params = [(b"VAR1", b"val1"), (b"VAR2", b"val2"), (b"VAR1", b"val3")]
+        params_event = ParamsReceived(1, raw_params)
+        self.adapter.handle_event(params_event)
+
+        # Check params_list in request object
+        self.assertEqual(self.adapter._requests[1].params_list, raw_params)
+
+        # Check environ via _run_app
+        recorded_environ = {}
+
+        def mock_app(environ, start_response):
+            nonlocal recorded_environ
+            recorded_environ = environ
+            start_response('200 OK', [])
+            return []
+        self.adapter.application = mock_app
+        self.adapter._run_app(self.adapter._requests[1])
+
+        self.assertEqual(recorded_environ.get(
+            "fcgisgi.fcgi_params"), raw_params)
+
     def test_header_merging_cookie(self):
         # Cookie headers should be joined with "; "
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
