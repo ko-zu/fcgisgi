@@ -119,7 +119,7 @@ class ASGIAdapter:
         # ASGI expects 'path' to be a decoded string and 'raw_path' to be the original bytes.
         scope = {
             "type": "http",
-            "asgi": {"version": "3.0", "spec_version": "2.0"},
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
             "method": p.get(b"REQUEST_METHOD", b"GET").decode('latin-1'),
             "path": p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape"),
             "query_string": p.get(b"QUERY_STRING", b""),
