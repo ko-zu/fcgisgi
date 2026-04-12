@@ -91,7 +91,7 @@ async def app(scope, receive, send):
 if __name__ == "__main__":
     logger.info("Starting server")
     try:
-        asyncio.run(run_asgi_server(app, bind_address={repr(sock_path)}))
+        asyncio.run(run_asgi_server(app, bind_address={repr(sock_path)}, shutdown_timeout=1.0))
     finally:
         logger.info("Server exited")
 """)
@@ -129,7 +129,22 @@ if __name__ == "__main__":
                 writer.write(header + content + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0) + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_STDIN, 1, 0, 0))
                 await writer.drain()
 
-                response = await asyncio.wait_for(reader.read(1024), timeout=2.0)
+                # Read response - wait long enough for all records
+                response = b""
+                start_read = time.time()
+                while time.time() - start_read < 2.0:
+                    try:
+                        chunk = await asyncio.wait_for(reader.read(4096), timeout=0.5)
+                        if not chunk:
+                            break
+                        response += chunk
+                        if b"process-ok" in response:
+                            break
+                    except asyncio.TimeoutError:
+                        if response:
+                            break
+                        continue
+
                 self.assertIn(b"process-ok", response)
 
                 writer.close()
