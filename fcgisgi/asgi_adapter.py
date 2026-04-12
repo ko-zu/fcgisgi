@@ -10,6 +10,11 @@ from .sansio import (
 )
 
 
+class DisconnectedError(OSError):
+    """Exception raised when trying to send data over a closed connection."""
+    pass
+
+
 @dataclass
 class ASGIRequest:
     id: int
@@ -18,6 +23,7 @@ class ASGIRequest:
     scope: Optional[Dict[str, Any]] = None
     aborted: bool = False
     response_started: bool = False
+    response_complete: bool = False
 
 
 class ASGIAdapter:
@@ -119,7 +125,7 @@ class ASGIAdapter:
         # ASGI expects 'path' to be a decoded string and 'raw_path' to be the original bytes.
         scope = {
             "type": "http",
-            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
             "method": p.get(b"REQUEST_METHOD", b"GET").decode('latin-1'),
             "path": p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape"),
             "query_string": p.get(b"QUERY_STRING", b""),
@@ -178,8 +184,8 @@ class ASGIAdapter:
             return await req.input_queue.get()
 
         async def send(message):
-            if req.aborted:
-                return
+            if req.aborted or req.response_complete:
+                raise DisconnectedError("Connection closed or response already completed")
             try:
                 if message["type"] == "http.response.start":
                     req.response_started = True
@@ -196,12 +202,14 @@ class ASGIAdapter:
                     if body:
                         self.send_func(self.fcgi.send_stdout(request_id, body))
                     if not message.get("more_body", False):
+                        req.response_complete = True
                         self.send_func(self.fcgi.send_stdout(
                             request_id, b""))  # EOF
                         self.send_func(self.fcgi.send_end_request(
                             request_id, 0, FCGI_REQUEST_COMPLETE))
             except Exception:
                 self._abort_request(request_id)
+                raise DisconnectedError("Connection lost during send")
 
         try:
             await self.app(req.scope, receive, send)
