@@ -85,7 +85,7 @@ class TestASGIScope(unittest.TestCase):
     def test_fcgi_params_extension(self):
         params = [(b"VAR1", b"val1"), (b"VAR2", b"val2")]
         scope = self.adapter._build_scope(1, params)
-        
+
         self.assertIn("extensions", scope)
         self.assertIn("fcgisgi", scope["extensions"])
         self.assertEqual(scope["extensions"]["fcgisgi"]["fcgi_params"], params)
@@ -106,6 +106,32 @@ class TestASGIScope(unittest.TestCase):
         # Unknown -> 1.1 default
         scope = self.adapter._build_scope(1, [(b"SERVER_PROTOCOL", b"FOO/BAR")])
         self.assertEqual(scope["http_version"], "1.1")
+
+    def test_client_server_info(self):
+        params = [
+            (b"REMOTE_ADDR", b"127.0.0.1"),
+            (b"REMOTE_PORT", b"12345"),
+            (b"SERVER_ADDR", b"192.168.1.1"),
+            (b"SERVER_PORT", b"80"),
+        ]
+        scope = self.adapter._build_scope(1, params)
+
+        self.assertEqual(scope["client"], ("127.0.0.1", 12345))
+        self.assertEqual(scope["server"], ("192.168.1.1", 80))
+
+        # Missing port case
+        params_no_port = [
+            (b"REMOTE_ADDR", b"127.0.0.1"),
+            (b"SERVER_ADDR", b"192.168.1.1"),
+        ]
+        scope_no_port = self.adapter._build_scope(1, params_no_port)
+        self.assertEqual(scope_no_port["client"], ("127.0.0.1", 0))
+        self.assertEqual(scope_no_port["server"], ("192.168.1.1", None))
+
+        # Missing both case
+        scope_none = self.adapter._build_scope(1, [])
+        self.assertNotIn("client", scope_none)
+        self.assertNotIn("server", scope_none)
 
 if __name__ == "__main__":
     unittest.main()

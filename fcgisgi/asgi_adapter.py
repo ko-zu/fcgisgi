@@ -124,8 +124,6 @@ class ASGIAdapter:
             "path": p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape"),
             "query_string": p.get(b"QUERY_STRING", b""),
             "scheme": p.get(b'HTTPS') in (b'on', b'1') and 'https' or 'http',
-            "client": (p.get(b"REMOTE_ADDR", b"").decode('latin-1'), int(p.get(b"REMOTE_PORT", 0))),
-            "server": (p.get(b"SERVER_NAME", b"").decode('latin-1'), int(p.get(b"SERVER_PORT", 0))),
             "state": self.lifespan_state.copy(),
             "extensions": {
                 "fcgisgi": {"fcgi_params": list(params)},
@@ -152,6 +150,13 @@ class ASGIAdapter:
         elif http_version not in ("1.0", "1.1", "2", "3"):
             http_version = "1.1"
         scope["http_version"] = http_version
+
+        if b"REMOTE_ADDR" in p:
+            scope["client"] = (p[b"REMOTE_ADDR"].decode("utf-8", "surrogateescape"),
+                               int(p[b"REMOTE_PORT"]) if b"REMOTE_PORT" in p else 0)
+        if b"SERVER_ADDR" in p:
+            scope["server"] = (p[b"SERVER_ADDR"].decode("utf-8", "surrogateescape"),
+                               int(p[b"SERVER_PORT"]) if b"SERVER_PORT" in p else None)
 
         # Process headers: Preserve all duplicate headers as per ASGI spec.
         # Headers are converted from HTTP_VAR_NAME to header-name format.
