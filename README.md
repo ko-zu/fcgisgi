@@ -122,8 +122,30 @@ asyncio.run(run_asgi_server(
 
 The original `FCGI_PARAMS` passed from the web server can be retrieved as a list of `(bytes, bytes)` key-value pairs, preserving their original order and any duplicates.
 
-- **ASGI**: `scope['extensions']['fcgisgi']['fcgi_params']` in the `http.request` scope.
+- **ASGI**: `scope['extensions']['fcgisgi']['fcgi_params']` in the connection/request scope.
 - **WSGI**: `environ['fcgisgi.fcgi_params']` in the `environ` dictionary.
+
+### ASGI Middleware Example
+
+You can use a middleware to expose custom FastCGI parameters (e.g., `RAW_URI`) as HTTP headers:
+
+```python
+class FCGIParamToHeaderMiddleware:
+    def __init__(self, app, param_name=b"RAW_URI", header_name=b"x-fcgi-raw-uri"):
+        self.app = app
+        self.param_name = param_name
+        self.header_name = header_name
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            fcgi_params = scope.get("extensions", {}).get("fcgisgi", {}).get("fcgi_params", [])
+            for key, value in fcgi_params:
+                if key == self.param_name:
+                    scope["headers"].insert(0, (self.header_name, value))
+                    break
+        return await self.app(scope, receive, send)
+```
+
 
 
 ## References
