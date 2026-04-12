@@ -223,7 +223,21 @@ os.execv(sys.executable, [sys.executable, {repr(app_path)}])
                 writer.write(struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_STDIN, 1, 0, 0))
                 await writer.drain()
 
-                response = await asyncio.wait_for(reader.read(1024), timeout=2.0)
+                # Read response - wait long enough for all records
+                response = b""
+                start_read = time.time()
+                while time.time() - start_read < 2.0:
+                    try:
+                        chunk = await asyncio.wait_for(reader.read(4096), timeout=0.5)
+                        if not chunk:
+                            break
+                        response += chunk
+                        if b"fd-inheritance-ok" in response:
+                            break
+                    except asyncio.TimeoutError:
+                        if response: break
+                        continue
+
                 self.assertIn(b"fd-inheritance-ok", response)
 
                 writer.close()
