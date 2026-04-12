@@ -67,7 +67,6 @@ Use the `force_script_name` option to override the mount point (root path) of yo
 
 .htaccess
 ```shell
-### .htaccess 
 AddHandler fcgid-script .fcgi
 RewriteEngine On
 RewriteBase /
@@ -80,7 +79,6 @@ RewriteRule ^.* index.fcgi/$0 [QSA,END]
 
 index.fcgi
 ```shell
-### index.fcgi
 #!/bin/sh
 PATH=/path/to/venv/bin:$PATH
 export PATH
