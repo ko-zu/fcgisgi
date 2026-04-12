@@ -30,7 +30,8 @@ class FastCGIASGIProtocol(asyncio.Protocol):
             on_close=self.transport.close,
             startup_complete=self.server.startup_complete,
             force_script_name=self.server.force_script_name,
-            lifespan_state=self.server.lifespan_state
+            lifespan_state=self.server.lifespan_state,
+            shutdown_timeout=self.server.kwargs.get('shutdown_timeout', 55.0)
         )
 
     def data_received(self, data):
@@ -207,6 +208,19 @@ class Server:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=shutdown_timeout)
                 except asyncio.TimeoutError:
                     logger.error("ASGI Lifespan shutdown timed out")
+
+                # Wait for all individual request tasks and their cancellation timers
+                wait_tasks = []
+                for proto in list(self.protocols):
+                    if proto.adapter and hasattr(proto.adapter, 'wait_all'):
+                        wait_tasks.append(proto.adapter.wait_all())
+
+                if wait_tasks:
+                    try:
+                        await asyncio.wait_for(asyncio.gather(*wait_tasks), timeout=shutdown_timeout)
+                    except asyncio.TimeoutError:
+                        logger.error("ASGI tasks cleanup timed out")
+
                 if self._lifespan_task:
                     self._lifespan_task.cancel()
             elif executor:

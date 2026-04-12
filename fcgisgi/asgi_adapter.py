@@ -20,6 +20,7 @@ class ASGIRequest:
     id: int
     input_queue: asyncio.Queue
     task: Optional[asyncio.Task] = None
+    cancel_task: Optional[asyncio.Task] = None
     scope: Optional[Dict[str, Any]] = None
     aborted: bool = False
     response_started: bool = False
@@ -27,7 +28,7 @@ class ASGIRequest:
 
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None], on_close: Callable[[], None], startup_complete: bool = True, force_script_name: Optional[str] = None, lifespan_state: Optional[Dict[str, Any]] = None):
+    def __init__(self, app: Callable, send_func: Callable[[bytes], None], on_close: Callable[[], None], startup_complete: bool = True, force_script_name: Optional[str] = None, lifespan_state: Optional[Dict[str, Any]] = None, shutdown_timeout: float = 55.0):
         self.app = app
         self.send_func = send_func
         self.on_close = on_close
@@ -37,6 +38,8 @@ class ASGIAdapter:
         self._startup_complete = startup_complete
         self.force_script_name = force_script_name
         self.lifespan_state = lifespan_state or {}
+        self.shutdown_timeout = shutdown_timeout
+        self._cancel_tasks = set()
 
     def handle_data(self, data: bytes):
         events = self.fcgi.feed_data(data)
@@ -106,8 +109,29 @@ class ASGIAdapter:
         if req and not req.aborted:
             req.aborted = True
             req.input_queue.put_nowait({"type": "http.disconnect"})
-            if req.task:
-                req.task.cancel()
+            if req.task and not req.task.done():
+                cancel_task = asyncio.create_task(
+                    self._delayed_cancel(req.task))
+                req.cancel_task = cancel_task
+                self._cancel_tasks.add(cancel_task)
+                cancel_task.add_done_callback(self._cancel_tasks.discard)
+
+    async def _delayed_cancel(self, task: asyncio.Task):
+        try:
+            await asyncio.sleep(self.shutdown_timeout)
+        finally:
+            if not task.done():
+                task.cancel()
+
+    async def wait_all(self):
+        """Wait for all active request tasks to complete."""
+        tasks = []
+        for req in list(self._requests.values()):
+            if req.task and not req.task.done():
+                tasks.append(req.task)
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def close_all(self):
         """Abort all active requests in this connection."""
@@ -185,7 +209,8 @@ class ASGIAdapter:
 
         async def send(message):
             if req.aborted or req.response_complete:
-                raise DisconnectedError("Connection closed or response already completed")
+                raise DisconnectedError(
+                    "Connection closed or response already completed")
             try:
                 if message["type"] == "http.response.start":
                     req.response_started = True
@@ -230,6 +255,8 @@ class ASGIAdapter:
                 except Exception:
                     pass
         finally:
+            if req.cancel_task and not req.cancel_task.done():
+                req.cancel_task.cancel()
             self._requests.pop(request_id, None)
             if not self._keep_conn and not self._requests:
                 self.on_close()
