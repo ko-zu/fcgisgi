@@ -99,10 +99,10 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
 
 
 class Server:
-    def __init__(self, app: Callable, is_asgi: bool = True, force_script_name: Optional[str] = None, **kwargs):
+    def __init__(self, app: Callable, is_asgi: bool = True, **kwargs):
         self.app = app
         self.is_asgi = is_asgi
-        self.force_script_name = force_script_name
+        self.force_script_name = kwargs.get("force_script_name")
         self.kwargs = kwargs
         self.startup_complete = not is_asgi
         self._stop_event = None
@@ -263,13 +263,11 @@ class Server:
             self._stop_event.set()
 
 
-async def run_asgi_server(app: Callable, bind_address=None, force_script_name: Optional[str] = None, **kwargs):
-    server = Server(app, is_asgi=True,
-                    force_script_name=force_script_name, **kwargs)
+async def run_asgi_server(app: Callable, bind_address=None, **kwargs):
+    server = Server(app, is_asgi=True, **kwargs)
     await server.run(bind_address)
 
 
-async def run_wsgi_server(app: Callable, bind_address=None, force_script_name: Optional[str] = None, **kwargs):
-    server = Server(app, is_asgi=False,
-                    force_script_name=force_script_name, **kwargs)
+async def run_wsgi_server(app: Callable, bind_address=None, **kwargs):
+    server = Server(app, is_asgi=False, **kwargs)
     await server.run(bind_address)
