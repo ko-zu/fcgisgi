@@ -11,15 +11,15 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
 
         async def app(scope, receive, send):
             nonlocal startup_called, shutdown_called
-            if scope['type'] == 'lifespan':
+            if scope["type"] == "lifespan":
                 while True:
                     message = await receive()
-                    if message['type'] == 'lifespan.startup':
+                    if message["type"] == "lifespan.startup":
                         startup_called = True
-                        await send({'type': 'lifespan.startup.complete'})
-                    elif message['type'] == 'lifespan.shutdown':
+                        await send({"type": "lifespan.startup.complete"})
+                    elif message["type"] == "lifespan.shutdown":
                         shutdown_called = True
-                        await send({'type': 'lifespan.shutdown.complete'})
+                        await send({"type": "lifespan.shutdown.complete"})
                         return
 
         server = Server(app, startup_timeout=0.1, shutdown_timeout=0.1)
@@ -40,7 +40,7 @@ class TestASGILifespan(unittest.IsolatedAsyncioTestCase):
 
     async def test_lifespan_timeout(self):
         async def slow_app(scope, receive, send):
-            if scope['type'] == 'lifespan':
+            if scope["type"] == "lifespan":
                 await receive()
                 await asyncio.sleep(0.5)
 

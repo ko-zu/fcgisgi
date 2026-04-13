@@ -3,8 +3,12 @@ import asyncio
 import struct
 from unittest.mock import MagicMock
 from fcgisgi.sansio import (
-    FCGI_VERSION_1, FCGI_BEGIN_REQUEST, FCGI_PARAMS, FCGI_STDIN,
-    FCGI_HEADER_FORMAT, FCGI_BEGIN_REQUEST_BODY_FORMAT
+    FCGI_VERSION_1,
+    FCGI_BEGIN_REQUEST,
+    FCGI_PARAMS,
+    FCGI_STDIN,
+    FCGI_HEADER_FORMAT,
+    FCGI_BEGIN_REQUEST_BODY_FORMAT,
 )
 from fcgisgi.asyncio_server import FastCGIASGIProtocol, Server
 
@@ -13,16 +17,20 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_interaction(self):
         # A simple ASGI app that returns OK
         async def app(scope, receive, send):
-            if scope['type'] == 'http':
-                await send({
-                    'type': 'http.response.start',
-                    'status': 200,
-                    'headers': [],
-                })
-                await send({
-                    'type': 'http.response.body',
-                    'body': b'OK',
-                })
+            if scope["type"] == "http":
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"OK",
+                    }
+                )
 
         # Mock transport to capture output
         transport = MagicMock()
@@ -37,18 +45,16 @@ class TestFastCGIProtocol(unittest.IsolatedAsyncioTestCase):
         # Simulate inbound FastCGI data
         # 1. Begin Request
         content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
-                             FCGI_BEGIN_REQUEST, 1, len(content), 0)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
         protocol.data_received(header + content)
 
         # 2. Params
         from fcgisgi.sansio import FastCGIConnection
+
         fcgi = FastCGIConnection()
         params_data = fcgi.encode_pair(b"SCRIPT_NAME", b"")
-        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
-                             FCGI_PARAMS, 1, len(params_data), 0)
-        header_eof = struct.pack(
-            FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, len(params_data), 0)
+        header_eof = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
         protocol.data_received(header + params_data + header_eof)
 
         # Give some time for the ASGI app task to run
@@ -103,7 +109,7 @@ if __name__ == "__main__":
                 [sys.executable, app_path],
                 env=env,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
             )
 
             # Wait for socket
@@ -112,21 +118,32 @@ if __name__ == "__main__":
                 await asyncio.sleep(0.1)
                 if proc.poll() is not None:
                     stdout, stderr = proc.communicate()
-                    self.fail(f"Server process exited prematurely with code {proc.returncode}\nStderr: {stderr.decode()}")
+                    self.fail(
+                        f"Server process exited prematurely with code {proc.returncode}\nStderr: {stderr.decode()}"
+                    )
 
             self.assertTrue(os.path.exists(sock_path))
 
             # Connect and verify
             try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_unix_connection(sock_path),
-                    timeout=2.0
-                )
+                reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(sock_path), timeout=2.0)
 
                 # Simple FCGI request
                 content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-                header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
-                writer.write(header + content + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0) + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_STDIN, 1, 0, 0))
+                header = struct.pack(
+                    FCGI_HEADER_FORMAT,
+                    FCGI_VERSION_1,
+                    FCGI_BEGIN_REQUEST,
+                    1,
+                    len(content),
+                    0,
+                )
+                writer.write(
+                    header
+                    + content
+                    + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0)
+                    + struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_STDIN, 1, 0, 0)
+                )
                 await writer.drain()
 
                 # Read response - wait long enough for all records
@@ -175,7 +192,7 @@ if __name__ == "__main__":
 
         # Create a listener socket
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listener.bind(('127.0.0.1', 0))
+        listener.bind(("127.0.0.1", 0))
         listener.listen(1)
         listener_fd = listener.fileno()
         host, port = listener.getsockname()
@@ -220,19 +237,23 @@ os.execv(sys.executable, [sys.executable, {repr(app_path)}])
                 [sys.executable, wrapper_path],
                 pass_fds=[listener_fd],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
             )
 
             # Connect and verify
             try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port),
-                    timeout=5.0
-                )
+                reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=5.0)
 
                 # Simple FCGI request
                 content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
-                header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_BEGIN_REQUEST, 1, len(content), 0)
+                header = struct.pack(
+                    FCGI_HEADER_FORMAT,
+                    FCGI_VERSION_1,
+                    FCGI_BEGIN_REQUEST,
+                    1,
+                    len(content),
+                    0,
+                )
                 writer.write(header + content)
                 writer.write(struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0))
                 writer.write(struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_STDIN, 1, 0, 0))
@@ -250,7 +271,8 @@ os.execv(sys.executable, [sys.executable, {repr(app_path)}])
                         if b"fd-inheritance-ok" in response:
                             break
                     except asyncio.TimeoutError:
-                        if response: break
+                        if response:
+                            break
                         continue
 
                 self.assertIn(b"fd-inheritance-ok", response)

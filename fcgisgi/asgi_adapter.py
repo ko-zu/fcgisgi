@@ -4,14 +4,23 @@ from typing import Callable, Dict, Any, List, Optional, Tuple
 import urllib.parse
 
 from .sansio import (
-    FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
-    EndOfStdin, AbortRequest, Event, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
-    FCGI_OVERLOADED, FCGI_KEEP_CONN
+    FastCGIConnection,
+    RequestStarted,
+    ParamsReceived,
+    StdinReceived,
+    EndOfStdin,
+    AbortRequest,
+    Event,
+    FCGI_RESPONDER,
+    FCGI_REQUEST_COMPLETE,
+    FCGI_OVERLOADED,
+    FCGI_KEEP_CONN,
 )
 
 
 class DisconnectedError(OSError):
     """Exception raised when trying to send data over a closed connection."""
+
     pass
 
 
@@ -28,7 +37,16 @@ class ASGIRequest:
 
 
 class ASGIAdapter:
-    def __init__(self, app: Callable, send_func: Callable[[bytes], None], on_close: Callable[[], None], startup_complete: bool = True, force_script_name: Optional[str] = None, lifespan_state: Optional[Dict[str, Any]] = None, shutdown_timeout: float = 55.0):
+    def __init__(
+        self,
+        app: Callable,
+        send_func: Callable[[bytes], None],
+        on_close: Callable[[], None],
+        startup_complete: bool = True,
+        force_script_name: Optional[str] = None,
+        lifespan_state: Optional[Dict[str, Any]] = None,
+        shutdown_timeout: float = 55.0,
+    ):
         self.app = app
         self.send_func = send_func
         self.on_close = on_close
@@ -49,54 +67,53 @@ class ASGIAdapter:
     def handle_event(self, event: Event):
         if isinstance(event, RequestStarted):
             if event.role != FCGI_RESPONDER:
-                self.send_func(self.fcgi.send_end_request(
-                    event.request_id, 0, 3))
+                self.send_func(self.fcgi.send_end_request(event.request_id, 0, 3))
                 return
 
             if not self._startup_complete:
-                self.send_func(self.fcgi.send_end_request(
-                    event.request_id, 0, FCGI_OVERLOADED))
+                self.send_func(self.fcgi.send_end_request(event.request_id, 0, FCGI_OVERLOADED))
                 return
 
             keep_conn = bool(event.flags & FCGI_KEEP_CONN)
             if not keep_conn:
                 self._keep_conn = False
 
-            self._requests[event.request_id] = ASGIRequest(
-                id=event.request_id,
-                input_queue=asyncio.Queue()
-            )
+            self._requests[event.request_id] = ASGIRequest(id=event.request_id, input_queue=asyncio.Queue())
 
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req.scope = self._build_scope(
-                    event.request_id, event.params)
+                req.scope = self._build_scope(event.request_id, event.params)
                 req.task = asyncio.create_task(self._run_app(req))
 
         elif isinstance(event, StdinReceived):
             req = self._requests.get(event.request_id)
             if req:
-                req.input_queue.put_nowait({
-                    "type": "http.request",
-                    "body": event.data,
-                    "more_body": True,
-                })
+                req.input_queue.put_nowait(
+                    {
+                        "type": "http.request",
+                        "body": event.data,
+                        "more_body": True,
+                    }
+                )
 
         elif isinstance(event, EndOfStdin):
             req = self._requests.get(event.request_id)
             if req:
-                req.input_queue.put_nowait({
-                    "type": "http.request",
-                    "body": b"",
-                    "more_body": False,
-                })
+                req.input_queue.put_nowait(
+                    {
+                        "type": "http.request",
+                        "body": b"",
+                        "more_body": False,
+                    }
+                )
 
         elif isinstance(event, AbortRequest):
             self._abort_request(event.request_id)
 
         elif isinstance(event, GetValues):
             from .sansio import FCGI_MAX_CONNS, FCGI_MAX_REQS, FCGI_MPXS_CONNS
+
             values = {
                 FCGI_MAX_CONNS: b"100",
                 FCGI_MAX_REQS: b"100",
@@ -110,8 +127,7 @@ class ASGIAdapter:
             req.aborted = True
             req.input_queue.put_nowait({"type": "http.disconnect"})
             if req.task and not req.task.done():
-                cancel_task = asyncio.create_task(
-                    self._delayed_cancel(req.task))
+                cancel_task = asyncio.create_task(self._delayed_cancel(req.task))
                 req.cancel_task = cancel_task
                 self._cancel_tasks.add(cancel_task)
                 cancel_task.add_done_callback(self._cancel_tasks.discard)
@@ -150,10 +166,10 @@ class ASGIAdapter:
         scope = {
             "type": "http",
             "asgi": {"version": "3.0", "spec_version": "2.4"},
-            "method": p.get(b"REQUEST_METHOD", b"GET").decode('latin-1'),
+            "method": p.get(b"REQUEST_METHOD", b"GET").decode("latin-1"),
             "path": p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape"),
             "query_string": p.get(b"QUERY_STRING", b""),
-            "scheme": p.get(b'HTTPS') in (b'on', b'1') and 'https' or 'http',
+            "scheme": p.get(b"HTTPS") in (b"on", b"1") and "https" or "http",
             "state": self.lifespan_state.copy(),
             "extensions": {
                 "fcgisgi": {"fcgi_params": list(params)},
@@ -163,8 +179,7 @@ class ASGIAdapter:
         if self.force_script_name is not None:
             scope["root_path"] = self.force_script_name
         else:
-            scope["root_path"] = p.get(
-                b"SCRIPT_NAME", b"").decode("utf-8", "surrogateescape")
+            scope["root_path"] = p.get(b"SCRIPT_NAME", b"").decode("utf-8", "surrogateescape")
 
         # 'raw_path' is an optional ASGI field. We can only reliably extract it from
         # REQUEST_URI when the app is mounted at the root (SCRIPT_NAME is empty),
@@ -173,8 +188,7 @@ class ASGIAdapter:
             scope["raw_path"] = p[b"REQUEST_URI"].split(b"?", 1)[0]
 
         # Normalize HTTP version string to follow ASGI spec (e.g., "1.1", "2", "3")
-        http_version = p.get(b"SERVER_PROTOCOL",
-                             b"HTTP/1.1").decode('latin-1').split("/")[-1]
+        http_version = p.get(b"SERVER_PROTOCOL", b"HTTP/1.1").decode("latin-1").split("/")[-1]
         if http_version in ("2.0", "3.0"):
             http_version = http_version[0]
         elif http_version not in ("1.0", "1.1", "2", "3"):
@@ -182,11 +196,15 @@ class ASGIAdapter:
         scope["http_version"] = http_version
 
         if b"REMOTE_ADDR" in p:
-            scope["client"] = (p[b"REMOTE_ADDR"].decode("utf-8", "surrogateescape"),
-                               int(p[b"REMOTE_PORT"]) if b"REMOTE_PORT" in p else 0)
+            scope["client"] = (
+                p[b"REMOTE_ADDR"].decode("utf-8", "surrogateescape"),
+                int(p[b"REMOTE_PORT"]) if b"REMOTE_PORT" in p else 0,
+            )
         if b"SERVER_ADDR" in p:
-            scope["server"] = (p[b"SERVER_ADDR"].decode("utf-8", "surrogateescape"),
-                               int(p[b"SERVER_PORT"]) if b"SERVER_PORT" in p else None)
+            scope["server"] = (
+                p[b"SERVER_ADDR"].decode("utf-8", "surrogateescape"),
+                int(p[b"SERVER_PORT"]) if b"SERVER_PORT" in p else None,
+            )
 
         # Process headers: Preserve all duplicate headers as per ASGI spec.
         # Headers are converted from HTTP_VAR_NAME to header-name format.
@@ -209,30 +227,26 @@ class ASGIAdapter:
 
         async def send(message):
             if req.aborted or req.response_complete:
-                raise DisconnectedError(
-                    "Connection closed or response already completed")
+                raise DisconnectedError("Connection closed or response already completed")
             unsupported_type = None
             try:
                 if message["type"] == "http.response.start":
                     req.response_started = True
                     status = message["status"]
                     headers = message.get("headers", [])
-                    res = [f"Status: {status}\r\n".encode('latin-1')]
+                    res = [f"Status: {status}\r\n".encode("latin-1")]
                     for name, value in headers:
                         res.append(name + b": " + value + b"\r\n")
                     res.append(b"\r\n")
-                    self.send_func(self.fcgi.send_stdout(
-                        request_id, b"".join(res)))
+                    self.send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
                 elif message["type"] == "http.response.body":
                     body = message.get("body", b"")
                     if body:
                         self.send_func(self.fcgi.send_stdout(request_id, body))
                     if not message.get("more_body", False):
                         req.response_complete = True
-                        self.send_func(self.fcgi.send_stdout(
-                            request_id, b""))  # EOF
-                        self.send_func(self.fcgi.send_end_request(
-                            request_id, 0, FCGI_REQUEST_COMPLETE))
+                        self.send_func(self.fcgi.send_stdout(request_id, b""))  # EOF
+                        self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
                 else:
                     unsupported_type = message["type"]
             except Exception:
@@ -240,8 +254,7 @@ class ASGIAdapter:
                 raise DisconnectedError("Connection lost during send")
 
             if unsupported_type:
-                raise ValueError(
-                    f"Unsupported ASGI message type: {unsupported_type}")
+                raise ValueError(f"Unsupported ASGI message type: {unsupported_type}")
 
         try:
             await self.app(req.scope, receive, send)
@@ -250,15 +263,19 @@ class ASGIAdapter:
         except Exception:
             if not req.response_started and not req.aborted:
                 try:
-                    await send({
-                        "type": "http.response.start",
-                        "status": 500,
-                        "headers": [(b"content-type", b"text/plain")],
-                    })
-                    await send({
-                        "type": "http.response.body",
-                        "body": b"Internal Server Error",
-                    })
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 500,
+                            "headers": [(b"content-type", b"text/plain")],
+                        }
+                    )
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": b"Internal Server Error",
+                        }
+                    )
                 except Exception:
                     pass
         finally:

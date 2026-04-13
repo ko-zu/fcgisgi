@@ -7,26 +7,36 @@ from fcgisgi.sansio import ParamsReceived, RequestStarted, FCGI_RESPONDER
 class TestWSGIEnviron(unittest.TestCase):
     def setUp(self):
         # Basic mocks for WSGIAdapter requirements
-        def dummy_send(d): pass
-        def dummy_spawn(f, args): pass
-        def dummy_call_soon(f, *args): f(*args)
-        def dummy_on_close(): pass
+        def dummy_send(d):
+            pass
+
+        def dummy_spawn(f, args):
+            pass
+
+        def dummy_call_soon(f, *args):
+            f(*args)
+
+        def dummy_on_close():
+            pass
 
         self.adapter = WSGIAdapter(
             application=lambda e, s: [],
             send_func=dummy_send,
             spawn_func=dummy_spawn,
             call_soon_func=dummy_call_soon,
-            on_close=dummy_on_close
+            on_close=dummy_on_close,
         )
 
     def test_metadata_prioritization(self):
         # First occurrence of REQUEST_METHOD should win
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
-        params_event = ParamsReceived(1, [
-            (b"REQUEST_METHOD", b"POST"),
-            (b"REQUEST_METHOD", b"GET"),
-        ])
+        params_event = ParamsReceived(
+            1,
+            [
+                (b"REQUEST_METHOD", b"POST"),
+                (b"REQUEST_METHOD", b"GET"),
+            ],
+        )
         self.adapter.handle_event(params_event)
 
         environ = self.adapter._requests[1].params
@@ -48,21 +58,24 @@ class TestWSGIEnviron(unittest.TestCase):
         def mock_app(environ, start_response):
             nonlocal recorded_environ
             recorded_environ = environ
-            start_response('200 OK', [])
+            start_response("200 OK", [])
             return []
+
         self.adapter.application = mock_app
         self.adapter._run_app(self.adapter._requests[1])
 
-        self.assertEqual(recorded_environ.get(
-            "fcgisgi.fcgi_params"), raw_params)
+        self.assertEqual(recorded_environ.get("fcgisgi.fcgi_params"), raw_params)
 
     def test_header_merging_cookie(self):
         # Cookie headers should be joined with "; "
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
-        params_event = ParamsReceived(1, [
-            (b"HTTP_COOKIE", b"a=1"),
-            (b"HTTP_COOKIE", b"b=2"),
-        ])
+        params_event = ParamsReceived(
+            1,
+            [
+                (b"HTTP_COOKIE", b"a=1"),
+                (b"HTTP_COOKIE", b"b=2"),
+            ],
+        )
         self.adapter.handle_event(params_event)
 
         environ = self.adapter._requests[1].params
@@ -71,10 +84,13 @@ class TestWSGIEnviron(unittest.TestCase):
     def test_header_merging_comma(self):
         # Other headers should be joined with ", "
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
-        params_event = ParamsReceived(1, [
-            (b"HTTP_X_FORWARDED_FOR", b"1.2.3.4"),
-            (b"HTTP_X_FORWARDED_FOR", b"5.6.7.8"),
-        ])
+        params_event = ParamsReceived(
+            1,
+            [
+                (b"HTTP_X_FORWARDED_FOR", b"1.2.3.4"),
+                (b"HTTP_X_FORWARDED_FOR", b"5.6.7.8"),
+            ],
+        )
         self.adapter.handle_event(params_event)
 
         environ = self.adapter._requests[1].params
@@ -85,22 +101,24 @@ class TestWSGIEnviron(unittest.TestCase):
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
         utf8_path = "/テスト".encode("utf-8")
         quoted_path = b"/%E3%83%86%E3%82%B9%E3%83%88"
-        params_event = ParamsReceived(1, [
-            (b"REQUEST_METHOD", b"GET"),
-            (b"PATH_INFO", utf8_path),
-            (b"REQUEST_URI", quoted_path)
-        ])
+        params_event = ParamsReceived(
+            1,
+            [
+                (b"REQUEST_METHOD", b"GET"),
+                (b"PATH_INFO", utf8_path),
+                (b"REQUEST_URI", quoted_path),
+            ],
+        )
         self.adapter.handle_event(params_event)
 
         environ = self.adapter._requests[1].params
         # WSGI spec (PEP 3333) says it should be latin-1 decoded bytes
-        self.assertEqual(environ["PATH_INFO"], utf8_path.decode('latin-1'))
-        self.assertEqual(environ["REQUEST_URI"], quoted_path.decode('latin-1'))
+        self.assertEqual(environ["PATH_INFO"], utf8_path.decode("latin-1"))
+        self.assertEqual(environ["REQUEST_URI"], quoted_path.decode("latin-1"))
 
     def test_wsgi_flags(self):
         # Test if wsgi.multiprocess is True
-        req = WSGIRequest(id=1, stdin=WSGIInput(), params={
-                          "REQUEST_METHOD": "GET"})
+        req = WSGIRequest(id=1, stdin=WSGIInput(), params={"REQUEST_METHOD": "GET"})
         self.adapter._requests[1] = req
 
         # We need to run _run_app partially or just check where flags are set.
@@ -111,7 +129,7 @@ class TestWSGIEnviron(unittest.TestCase):
         def mock_app(environ, start_response):
             nonlocal recorded_environ
             recorded_environ = environ
-            start_response('200 OK', [])
+            start_response("200 OK", [])
             return []
 
         self.adapter.application = mock_app

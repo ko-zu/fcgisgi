@@ -21,3 +21,6 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/ko-zu/fcgisgi"
 "Bug Tracker" = "https://github.com/ko-zu/fcgisgi/issues"
+
+[tool.black]
+line-length = 119

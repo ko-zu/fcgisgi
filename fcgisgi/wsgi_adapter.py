@@ -8,9 +8,20 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Any, List, Optional, Tuple
 from .sansio import (
-    FastCGIConnection, RequestStarted, ParamsReceived, StdinReceived,
-    EndOfStdin, AbortRequest, Event, GetValues, FCGI_RESPONDER, FCGI_REQUEST_COMPLETE,
-    FCGI_MAX_CONNS, FCGI_MAX_REQS, FCGI_MPXS_CONNS, FCGI_KEEP_CONN
+    FastCGIConnection,
+    RequestStarted,
+    ParamsReceived,
+    StdinReceived,
+    EndOfStdin,
+    AbortRequest,
+    Event,
+    GetValues,
+    FCGI_RESPONDER,
+    FCGI_REQUEST_COMPLETE,
+    FCGI_MAX_CONNS,
+    FCGI_MAX_REQS,
+    FCGI_MPXS_CONNS,
+    FCGI_KEEP_CONN,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 class WSGIAbortError(Exception):
     """Exception raised to interrupt the WSGI application when a request is aborted."""
+
     pass
 
 
@@ -65,16 +77,15 @@ class WSGIInput(io.RawIOBase):
 
 
 class WSGIErrors:
-    def __init__(self, adapter: 'WSGIAdapter', request_id: int):
+    def __init__(self, adapter: "WSGIAdapter", request_id: int):
         self.adapter = adapter
         self.request_id = request_id
 
     def write(self, data: str):
         if not isinstance(data, str):
             raise TypeError("write() argument must be str")
-        encoded = data.encode('utf-8', 'replace')
-        self.adapter.send_func(
-            self.adapter.fcgi.send_stderr(self.request_id, encoded))
+        encoded = data.encode("utf-8", "replace")
+        self.adapter.send_func(self.adapter.fcgi.send_stderr(self.request_id, encoded))
 
     def writelines(self, lines: List[str]):
         for line in lines:
@@ -87,7 +98,7 @@ class WSGIErrors:
 @dataclass
 class WSGIRequest:
     id: int
-    stdin: 'WSGIInput'
+    stdin: "WSGIInput"
     params: Dict[str, str] = field(default_factory=dict)
     params_list: List[Tuple[bytes, bytes]] = field(default_factory=list)
     thread: Optional[threading.Thread] = None
@@ -97,7 +108,15 @@ class WSGIRequest:
 
 
 class WSGIAdapter:
-    def __init__(self, application: Callable, send_func: Callable[[bytes], None], spawn_func: Callable, call_soon_func: Callable, on_close: Callable[[], None], force_script_name: Optional[str] = None):
+    def __init__(
+        self,
+        application: Callable,
+        send_func: Callable[[bytes], None],
+        spawn_func: Callable,
+        call_soon_func: Callable,
+        on_close: Callable[[], None],
+        force_script_name: Optional[str] = None,
+    ):
         self.application = application
         self.send_func = send_func
         self.on_close = on_close
@@ -116,18 +135,14 @@ class WSGIAdapter:
     def handle_event(self, event: Event):
         if isinstance(event, RequestStarted):
             if event.role != FCGI_RESPONDER:
-                self.send_func(self.fcgi.send_end_request(
-                    event.request_id, 0, 3))
+                self.send_func(self.fcgi.send_end_request(event.request_id, 0, 3))
                 return
 
             keep_conn = bool(event.flags & FCGI_KEEP_CONN)
             if not keep_conn:
                 self._keep_conn = False
 
-            self._requests[event.request_id] = WSGIRequest(
-                id=event.request_id,
-                stdin=WSGIInput()
-            )
+            self._requests[event.request_id] = WSGIRequest(id=event.request_id, stdin=WSGIInput())
 
         elif isinstance(event, ParamsReceived):
             req = self._requests.get(event.request_id)
@@ -140,8 +155,8 @@ class WSGIAdapter:
                 environ = {}
 
                 for k_bytes, v_bytes in event.params:
-                    k = k_bytes.decode('latin-1')
-                    v = v_bytes.decode('latin-1')
+                    k = k_bytes.decode("latin-1")
+                    v = v_bytes.decode("latin-1")
 
                     if k.startswith("HTTP_"):
                         header_key = k[5:]
@@ -202,22 +217,21 @@ class WSGIAdapter:
         request_id = req.id
         environ = req.params
 
-        environ['wsgi.version'] = (1, 0)
-        environ['wsgi.url_scheme'] = environ.get(
-            'HTTPS', 'off') in ('on', '1') and 'https' or 'http'
-        environ['wsgi.input'] = io.BufferedReader(req.stdin)
-        environ['wsgi.errors'] = WSGIErrors(self, request_id)
-        environ['wsgi.multithread'] = True
-        environ['wsgi.multiprocess'] = True
-        environ['wsgi.run_once'] = False
-        environ['fcgisgi.fcgi_params'] = req.params_list
+        environ["wsgi.version"] = (1, 0)
+        environ["wsgi.url_scheme"] = environ.get("HTTPS", "off") in ("on", "1") and "https" or "http"
+        environ["wsgi.input"] = io.BufferedReader(req.stdin)
+        environ["wsgi.errors"] = WSGIErrors(self, request_id)
+        environ["wsgi.multithread"] = True
+        environ["wsgi.multiprocess"] = True
+        environ["wsgi.run_once"] = False
+        environ["fcgisgi.fcgi_params"] = req.params_list
 
         if self.force_script_name is not None:
-            environ['SCRIPT_NAME'] = self.force_script_name
-        elif 'SCRIPT_NAME' not in environ:
-            environ['SCRIPT_NAME'] = ''
-        if 'PATH_INFO' not in environ:
-            environ['PATH_INFO'] = ''
+            environ["SCRIPT_NAME"] = self.force_script_name
+        elif "SCRIPT_NAME" not in environ:
+            environ["SCRIPT_NAME"] = ""
+        if "PATH_INFO" not in environ:
+            environ["PATH_INFO"] = ""
 
         def start_response(status, response_headers, exc_info=None):
             if exc_info:
@@ -242,13 +256,12 @@ class WSGIAdapter:
             logger.exception("Exception in WSGI application")
             if not req.response_started and not req.aborted:
                 try:
-                    start_response('500 Internal Server Error', [
-                                   ('Content-Type', 'text/plain')])
+                    start_response("500 Internal Server Error", [("Content-Type", "text/plain")])
                     self._write(req, b"Internal Server Error")
                 except Exception:
                     pass
         finally:
-            if hasattr(result, 'close'):
+            if hasattr(result, "close"):
                 try:
                     result.close()
                 except Exception:
@@ -257,8 +270,7 @@ class WSGIAdapter:
             if not req.aborted:
                 try:
                     self.send_func(self.fcgi.send_stdout(request_id, b""))
-                    self.send_func(self.fcgi.send_end_request(
-                        request_id, 0, FCGI_REQUEST_COMPLETE))
+                    self.send_func(self.fcgi.send_end_request(request_id, 0, FCGI_REQUEST_COMPLETE))
                 except Exception:
                     pass
 
@@ -275,18 +287,17 @@ class WSGIAdapter:
 
         # Convert str to bytes if necessary (WSGI spec allows str in some cases)
         if isinstance(data, str):
-            data = data.encode('latin-1')
+            data = data.encode("latin-1")
 
         request_id = req.id
         try:
             if not req.response_started:
                 status, headers = req.headers_set
-                res = [f"Status: {status}\r\n".encode('latin-1')]
+                res = [f"Status: {status}\r\n".encode("latin-1")]
                 for name, value in headers:
-                    res.append(f"{name}: {value}\r\n".encode('latin-1'))
+                    res.append(f"{name}: {value}\r\n".encode("latin-1"))
                 res.append(b"\r\n")
-                self.send_func(self.fcgi.send_stdout(
-                    request_id, b"".join(res)))
+                self.send_func(self.fcgi.send_stdout(request_id, b"".join(res)))
                 req.response_started = True
 
             if data:

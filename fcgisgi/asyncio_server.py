@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class FastCGIASGIProtocol(asyncio.Protocol):
     """ASGI specific protocol implementation."""
 
-    def __init__(self, app: Callable, server: 'Server'):
+    def __init__(self, app: Callable, server: "Server"):
         self.app = app
         self.server = server
         self.adapter = None
@@ -31,7 +31,7 @@ class FastCGIASGIProtocol(asyncio.Protocol):
             startup_complete=self.server.startup_complete,
             force_script_name=self.server.force_script_name,
             lifespan_state=self.server.lifespan_state,
-            shutdown_timeout=self.server.kwargs.get('shutdown_timeout', 55.0)
+            shutdown_timeout=self.server.kwargs.get("shutdown_timeout", 55.0),
         )
 
     def data_received(self, data):
@@ -54,7 +54,7 @@ class FastCGIASGIProtocol(asyncio.Protocol):
 class FastCGIWSGIProtocol(asyncio.Protocol):
     """WSGI specific protocol implementation."""
 
-    def __init__(self, app: Callable, executor: Any, server: 'Server'):
+    def __init__(self, app: Callable, executor: Any, server: "Server"):
         self.app = app
         self.executor = executor
         self.server = server
@@ -74,11 +74,10 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
         self.adapter = WSGIAdapter(
             self.app,
             thread_safe_send,
-            lambda target, args: loop.run_in_executor(
-                self.executor, target, *args),
+            lambda target, args: loop.run_in_executor(self.executor, target, *args),
             loop.call_soon_threadsafe,
             on_close=self.transport.close,
-            force_script_name=self.server.force_script_name
+            force_script_name=self.server.force_script_name,
         )
 
     def data_received(self, data):
@@ -145,7 +144,7 @@ class Server:
             self._lifespan_task = asyncio.create_task(self._run_lifespan())
             await self._lifespan_queue.put({"type": "lifespan.startup"})
             try:
-                timeout = self.kwargs.get('startup_timeout', 55.0)
+                timeout = self.kwargs.get("startup_timeout", 55.0)
                 await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.error("ASGI Lifespan startup timed out")
@@ -160,8 +159,11 @@ class Server:
         executor = None
         if not self.is_asgi:
             from concurrent.futures import ThreadPoolExecutor
-            executor = ThreadPoolExecutor(max_workers=self.kwargs.get('max_workers'),
-                                          thread_name_prefix="wsgi-worker")
+
+            executor = ThreadPoolExecutor(
+                max_workers=self.kwargs.get("max_workers"),
+                thread_name_prefix="wsgi-worker",
+            )
 
         def protocol_factory():
             if self.is_asgi:
@@ -172,12 +174,10 @@ class Server:
         if bind_address is None:
             # Use socket.fromfd to probe the family without closing the original fd=0.
             try:
-                probe_sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
-                                           socket.AF_INET, socket.SOCK_STREAM)
+                probe_sock = socket.fromfd(FCGI_LISTENSOCK_FILENO, socket.AF_INET, socket.SOCK_STREAM)
                 try:
                     # 39 is SO_DOMAIN on Linux.
-                    family = probe_sock.getsockopt(
-                        socket.SOL_SOCKET, getattr(socket, 'SO_DOMAIN', 39))
+                    family = probe_sock.getsockopt(socket.SOL_SOCKET, getattr(socket, "SO_DOMAIN", 39))
                 except (AttributeError, OSError):
                     family = socket.AF_INET
                 probe_sock.close()
@@ -185,21 +185,20 @@ class Server:
                 family = socket.AF_INET
 
             if family == socket.AF_UNIX:
-                sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
-                                     socket.AF_UNIX, socket.SOCK_STREAM)
+                sock = socket.fromfd(FCGI_LISTENSOCK_FILENO, socket.AF_UNIX, socket.SOCK_STREAM)
                 import sys
+
                 if sys.version_info >= (3, 13):
-                    server = await self.loop.create_unix_server(protocol_factory, sock=sock,
-                                                                cleanup_socket=False)
+                    server = await self.loop.create_unix_server(protocol_factory, sock=sock, cleanup_socket=False)
                 else:
                     server = await self.loop.create_unix_server(protocol_factory, sock=sock)
             else:
-                sock = socket.fromfd(FCGI_LISTENSOCK_FILENO,
-                                     family, socket.SOCK_STREAM)
+                sock = socket.fromfd(FCGI_LISTENSOCK_FILENO, family, socket.SOCK_STREAM)
                 server = await self.loop.create_server(protocol_factory, sock=sock)
         elif isinstance(bind_address, str):
             if os.path.exists(bind_address):
                 import stat
+
                 try:
                     st = os.stat(bind_address)
                     if stat.S_ISSOCK(st.st_mode):
@@ -223,7 +222,7 @@ class Server:
             server.close()
             await server.wait_closed()
 
-            shutdown_timeout = self.kwargs.get('shutdown_timeout', 55.0)
+            shutdown_timeout = self.kwargs.get("shutdown_timeout", 55.0)
             if self.is_asgi:
                 await self._lifespan_queue.put({"type": "lifespan.shutdown"})
                 try:
@@ -234,7 +233,7 @@ class Server:
                 # Wait for all individual request tasks and their cancellation timers
                 wait_tasks = []
                 for proto in list(self.protocols):
-                    if proto.adapter and hasattr(proto.adapter, 'wait_all'):
+                    if proto.adapter and hasattr(proto.adapter, "wait_all"):
                         wait_tasks.append(proto.adapter.wait_all())
 
                 if wait_tasks:
@@ -255,7 +254,7 @@ class Server:
         scope = {
             "type": "lifespan",
             "asgi": {"version": "3.0", "spec_version": "2.0"},
-            "state": self.lifespan_state
+            "state": self.lifespan_state,
         }
 
         async def receive():
@@ -269,9 +268,13 @@ class Server:
                 self._startup_event.set()
             elif message["type"] == "lifespan.shutdown.complete":
                 self._shutdown_event.set()
-            elif message["type"] in ("lifespan.startup.failed", "lifespan.shutdown.failed"):
+            elif message["type"] in (
+                "lifespan.startup.failed",
+                "lifespan.shutdown.failed",
+            ):
                 self._startup_event.set()
                 self._shutdown_event.set()
+
         try:
             await self.app(scope, receive, send)
         except Exception:

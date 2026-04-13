@@ -1,6 +1,7 @@
 import unittest
 from fcgisgi.asgi_adapter import ASGIAdapter
 
+
 class TestASGIScope(unittest.TestCase):
     def setUp(self):
         self.adapter = ASGIAdapter(lambda s, r, send: None, lambda d: None, on_close=lambda: None)
@@ -24,7 +25,10 @@ class TestASGIScope(unittest.TestCase):
         params = [
             (b"REQUEST_METHOD", b"GET"),
             (b"PATH_INFO", "/hello 世界!".encode("utf-8")),
-            (b"REQUEST_URI", b"/%e3%81%82.py/hello%20%e4%b8%96%e7%95%8c%21?a=%e3%81%82"),
+            (
+                b"REQUEST_URI",
+                b"/%e3%81%82.py/hello%20%e4%b8%96%e7%95%8c%21?a=%e3%81%82",
+            ),
             (b"QUERY_STRING", b"a=%e3%81%82"),
             (b"SCRIPT_NAME", "/あ.py".encode("utf-8")),
         ]
@@ -77,7 +81,7 @@ class TestASGIScope(unittest.TestCase):
         # First occurrence of REQUEST_METHOD should win
         params = [
             (b"REQUEST_METHOD", b"POST"),
-            (b"REQUEST_METHOD", b"GET"), # Duplicate, should be ignored for method
+            (b"REQUEST_METHOD", b"GET"),  # Duplicate, should be ignored for method
         ]
         scope = self.adapter._build_scope(1, params)
         self.assertEqual(scope["method"], "POST")
@@ -132,6 +136,7 @@ class TestASGIScope(unittest.TestCase):
         scope_none = self.adapter._build_scope(1, [])
         self.assertNotIn("client", scope_none)
         self.assertNotIn("server", scope_none)
+
 
 if __name__ == "__main__":
     unittest.main()
