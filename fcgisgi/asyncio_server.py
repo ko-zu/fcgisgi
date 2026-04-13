@@ -99,6 +99,19 @@ class FastCGIWSGIProtocol(asyncio.Protocol):
 
 
 class Server:
+    """
+    Asynchronous FastCGI server for ASGI and WSGI applications.
+
+    Args:
+        app: The ASGI or WSGI application callable.
+        is_asgi: Boolean indicating if the app is an ASGI application. Default is True.
+        **kwargs: Additional configuration options:
+            force_script_name (str): Override the SCRIPT_NAME (WSGI) or root_path (ASGI).
+            startup_timeout (float): ASGI lifespan startup timeout in seconds (default: 55.0).
+            shutdown_timeout (float): Graceful shutdown timeout in seconds (default: 55.0).
+            max_workers (int): Maximum threads for WSGI execution (default: None).
+    """
+
     def __init__(self, app: Callable, is_asgi: bool = True, **kwargs):
         self.app = app
         self.is_asgi = is_asgi
@@ -114,6 +127,15 @@ class Server:
         self.lifespan_state = {}
 
     async def run(self, bind_address: Union[str, Tuple[str, int], None] = None):
+        """
+        Start the FastCGI server and wait for the stop event.
+
+        Args:
+            bind_address:
+                - None: Use the socket inherited from file descriptor 0 (FastCGI default).
+                - str: Bind to a UNIX domain socket path.
+                - tuple (host, port): Bind to a TCP socket.
+        """
         self.loop = asyncio.get_running_loop()
         self._stop_event = asyncio.Event()
 
@@ -264,10 +286,26 @@ class Server:
 
 
 async def run_asgi_server(app: Callable, bind_address=None, **kwargs):
+    """
+    Run an ASGI application as a FastCGI server.
+
+    Args:
+        app: The ASGI application callable.
+        bind_address: Address to bind the server to (TCP tuple, UNIX path, or None for fd=0).
+        **kwargs: Additional configuration (startup_timeout, shutdown_timeout, force_script_name).
+    """
     server = Server(app, is_asgi=True, **kwargs)
     await server.run(bind_address)
 
 
 async def run_wsgi_server(app: Callable, bind_address=None, **kwargs):
+    """
+    Run a WSGI application as a FastCGI server.
+
+    Args:
+        app: The WSGI application callable.
+        bind_address: Address to bind the server to (TCP tuple, UNIX path, or None for fd=0).
+        **kwargs: Additional configuration (max_workers, shutdown_timeout, force_script_name).
+    """
     server = Server(app, is_asgi=False, **kwargs)
     await server.run(bind_address)
