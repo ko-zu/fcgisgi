@@ -2,6 +2,8 @@
 
 A FastCGI-to-ASGI/WSGI adapter powered by Python's `asyncio`.
 
+![PyPI - Version](https://img.shields.io/pypi/v/fcgisgi)
+
 ## Features
 -   FastCGI-to-ASGI adapter.
 -   FastCGI-to-WSGI adapter (via thread pool).
@@ -9,10 +11,12 @@ A FastCGI-to-ASGI/WSGI adapter powered by Python's `asyncio`.
 -   Sans-IO FastCGI protocol implementation.
 
 ## Installation
-(Once published)
 ```bash
 pip install fcgisgi
 ```
+
+- PyPI: https://pypi.org/project/fcgisgi
+- GitHub: https://github.com/ko-zu/fcgisgi
 
 ## Usage
 
