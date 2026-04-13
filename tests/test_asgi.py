@@ -78,6 +78,30 @@ class TestASGIAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"Status: 500", self.output)
         self.assertIn(b"Internal Server Error", self.output)
 
+    async def test_asgi_unsupported_type(self):
+        error_caught = False
+
+        async def app(scope, receive, send):
+            nonlocal error_caught
+            if scope['type'] == 'http':
+                try:
+                    await send({'type': 'http.unsupported.type'})
+                except ValueError as e:
+                    if "Unsupported ASGI message type" in str(e):
+                        error_caught = True
+
+        adapter = ASGIAdapter(app, self.send_func, on_close=lambda: None, startup_complete=True)
+
+        # Start request
+        content = struct.pack(FCGI_BEGIN_REQUEST_BODY_FORMAT, 1, 1)
+        header = struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1,
+                             FCGI_BEGIN_REQUEST, 1, len(content), 0)
+        adapter.handle_data(header + content)
+        adapter.handle_data(struct.pack(FCGI_HEADER_FORMAT, FCGI_VERSION_1, FCGI_PARAMS, 1, 0, 0))
+
+        await asyncio.sleep(0.1)
+        self.assertTrue(error_caught, "ValueError was not raised/caught for unsupported type")
+
 
 if __name__ == "__main__":
     unittest.main()

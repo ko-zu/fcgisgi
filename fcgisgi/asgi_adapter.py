@@ -211,6 +211,7 @@ class ASGIAdapter:
             if req.aborted or req.response_complete:
                 raise DisconnectedError(
                     "Connection closed or response already completed")
+            unsupported_type = None
             try:
                 if message["type"] == "http.response.start":
                     req.response_started = True
@@ -232,9 +233,15 @@ class ASGIAdapter:
                             request_id, b""))  # EOF
                         self.send_func(self.fcgi.send_end_request(
                             request_id, 0, FCGI_REQUEST_COMPLETE))
+                else:
+                    unsupported_type = message["type"]
             except Exception:
                 self._abort_request(request_id)
                 raise DisconnectedError("Connection lost during send")
+
+            if unsupported_type:
+                raise ValueError(
+                    f"Unsupported ASGI message type: {unsupported_type}")
 
         try:
             await self.app(req.scope, receive, send)
