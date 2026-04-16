@@ -1,21 +1,24 @@
 # fcgisgi
 
-A FastCGI-to-ASGI/WSGI adapter powered by Python's `asyncio`.
+A FastCGI-to-ASGI/WSGI adapter.
 
-![PyPI - Version](https://img.shields.io/pypi/v/fcgisgi)
+Run ASGI/WSGI Python applications behind legacy FastCGI-based web hosting servers (e.g., Apache `mod_fcgid`).
+An alternative to `flup.server.fcgi` package.
+
+[![PyPI - Version](https://img.shields.io/pypi/v/fcgisgi)](https://pypi.org/project/fcgisgi/)
 
 ## Features
--   FastCGI-to-ASGI adapter.
--   FastCGI-to-WSGI adapter (via thread pool).
--   `asyncio`-based server implementation.
--   Sans-IO FastCGI protocol implementation.
+- FastCGI-to-ASGI adapter.
+- FastCGI-to-WSGI adapter (via thread pool).
+- `asyncio`-based server implementation.
+- Support spawning from `mod_fcgid`.
 
 ## Installation
-```bash
+```shell
 pip install fcgisgi
 ```
 
-- PyPI: https://pypi.org/project/fcgisgi
+- PyPI: https://pypi.org/project/fcgisgi/
 - GitHub: https://github.com/ko-zu/fcgisgi
 
 ## Usage
@@ -98,7 +101,9 @@ async def app(scope, receive, send):
     """ SNIP """
 
 if __name__ == "__main__":
-    # Specify the mount point (e.g., "" if mounted at the root)
+    # Specify the mount point.
+    #     ""     if mounted at the root
+    #     "/app" if mounted under "http://example.com/app/"
     asyncio.run(run_asgi_server(app, force_script_name=""))
 ```
 
@@ -147,7 +152,6 @@ class FCGIParamToHeaderMiddleware:
                     break
         return await self.app(scope, receive, send)
 ```
-
 
 
 ## References
