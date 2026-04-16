@@ -4,7 +4,7 @@ import socket
 import os
 import struct
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fcgisgi.asyncio_server import Server
 from fcgisgi.sansio import (
     FCGI_LISTENSOCK_FILENO,
@@ -12,8 +12,6 @@ from fcgisgi.sansio import (
     FCGI_BEGIN_REQUEST,
     FCGI_PARAMS,
     FCGI_STDIN,
-    FCGI_RESPONDER,
-    FCGI_KEEP_CONN,
     FCGI_HEADER_FORMAT,
     FCGI_BEGIN_REQUEST_BODY_FORMAT,
 )

@@ -1,7 +1,6 @@
 import unittest
-import threading
 from fcgisgi.wsgi_adapter import WSGIAdapter, WSGIRequest, WSGIInput
-from fcgisgi.sansio import ParamsReceived, RequestStarted, FCGI_RESPONDER
+from fcgisgi.sansio import ParamsReceived
 
 
 class TestWSGIEnviron(unittest.TestCase):

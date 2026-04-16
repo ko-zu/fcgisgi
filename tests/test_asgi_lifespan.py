@@ -1,6 +1,5 @@
 import unittest
 import asyncio
-import struct
 from fcgisgi.asyncio_server import Server
 
 

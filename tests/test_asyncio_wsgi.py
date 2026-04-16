@@ -1,7 +1,6 @@
 import unittest
 import asyncio
 import struct
-import time
 from unittest.mock import MagicMock
 from concurrent.futures import ThreadPoolExecutor
 from fcgisgi.sansio import (
@@ -12,7 +11,6 @@ from fcgisgi.sansio import (
     FCGI_BEGIN_REQUEST_BODY_FORMAT,
 )
 from fcgisgi.asyncio_server import FastCGIWSGIProtocol, Server
-from fcgisgi.wsgi_adapter import WSGIAdapter
 
 
 class TestFastCGIWSGIProtocol(unittest.IsolatedAsyncioTestCase):

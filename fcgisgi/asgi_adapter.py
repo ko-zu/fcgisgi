@@ -1,7 +1,6 @@
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, Any, List, Optional, Tuple
-import urllib.parse
 
 from .sansio import (
     FastCGIConnection,
@@ -11,6 +10,7 @@ from .sansio import (
     EndOfStdin,
     AbortRequest,
     Event,
+    GetValues,
     FCGI_RESPONDER,
     FCGI_REQUEST_COMPLETE,
     FCGI_OVERLOADED,

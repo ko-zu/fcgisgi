@@ -185,7 +185,6 @@ if __name__ == "__main__":
         import sys
         import os
         import tempfile
-        import signal
         import subprocess
         import socket
         import time
@@ -203,14 +202,14 @@ if __name__ == "__main__":
 
             # Create a server script
             with open(app_path, "w") as f:
-                f.write(f"""
+                f.write("""
 import asyncio
 from fcgisgi import run_asgi_server
 
 async def app(scope, receive, send):
     if scope['type'] == 'http':
-        await send({{'type': 'http.response.start', 'status': 200, 'headers': []}})
-        await send({{'type': 'http.response.body', 'body': b'fd-inheritance-ok'}})
+        await send({'type': 'http.response.start', 'status': 200, 'headers': []})
+        await send({'type': 'http.response.body', 'body': b'fd-inheritance-ok'})
 
 if __name__ == "__main__":
     asyncio.run(run_asgi_server(app))

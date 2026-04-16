@@ -1,9 +1,6 @@
 import io
-import sys
 import threading
 import queue
-import socket
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Any, List, Optional, Tuple
@@ -252,7 +249,7 @@ class WSGIAdapter:
                 self._write(req, b"")
         except WSGIAbortError:
             pass
-        except Exception as e:
+        except Exception:
             logger.exception("Exception in WSGI application")
             if not req.response_started and not req.aborted:
                 try:

@@ -1,13 +1,11 @@
 import unittest
 import struct
-import io
 import time
 import threading
 from fcgisgi.sansio import (
     FCGI_VERSION_1,
     FCGI_BEGIN_REQUEST,
     FCGI_PARAMS,
-    FCGI_STDIN,
     FCGI_HEADER_FORMAT,
     FCGI_BEGIN_REQUEST_BODY_FORMAT,
     FastCGIConnection,
@@ -55,7 +53,7 @@ class TestWSGIAdapter(unittest.TestCase):
         # Output should contain STDOUT (headers + body) and END_REQUEST
         # We can use FastCGIConnection to parse the output
         conn = FastCGIConnection()
-        events = conn.feed_data(self.output)
+        _ = conn.feed_data(self.output)
 
         # We don't have events for STDOUT in our FastCGIConnection yet (it only parses inbound)
         # But we can check the raw output or update FastCGIConnection to handle all types

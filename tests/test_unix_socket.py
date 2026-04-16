@@ -2,7 +2,6 @@ import unittest
 import asyncio
 import os
 import tempfile
-import shutil
 import struct
 from fcgisgi.asyncio_server import Server
 from fcgisgi.sansio import (
@@ -10,8 +9,6 @@ from fcgisgi.sansio import (
     FCGI_BEGIN_REQUEST,
     FCGI_PARAMS,
     FCGI_STDIN,
-    FCGI_RESPONDER,
-    FCGI_KEEP_CONN,
     FCGI_HEADER_FORMAT,
     FCGI_BEGIN_REQUEST_BODY_FORMAT,
 )

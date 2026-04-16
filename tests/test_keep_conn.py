@@ -2,14 +2,12 @@ import unittest
 import asyncio
 import struct
 import threading
-from unittest.mock import MagicMock
 from fcgisgi.asgi_adapter import ASGIAdapter
 from fcgisgi.wsgi_adapter import WSGIAdapter
 from fcgisgi.sansio import (
     FCGI_VERSION_1,
     FCGI_BEGIN_REQUEST,
     FCGI_PARAMS,
-    FCGI_STDIN,
     FCGI_RESPONDER,
     FCGI_HEADER_FORMAT,
     FCGI_BEGIN_REQUEST_BODY_FORMAT,

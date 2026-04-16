@@ -5,7 +5,6 @@ from fcgisgi.sansio import (
     FCGI_VERSION_1,
     FCGI_BEGIN_REQUEST,
     FCGI_PARAMS,
-    FCGI_STDIN,
     FCGI_HEADER_FORMAT,
     FCGI_BEGIN_REQUEST_BODY_FORMAT,
 )

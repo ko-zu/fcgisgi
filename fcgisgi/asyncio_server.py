@@ -3,7 +3,7 @@ import signal
 import socket
 import os
 import logging
-from typing import Callable, Union, Tuple, Optional, Any
+from typing import Callable, Union, Tuple, Any
 
 from .sansio import FCGI_LISTENSOCK_FILENO
 from .asgi_adapter import ASGIAdapter
@@ -181,7 +181,7 @@ class Server:
                 except (AttributeError, OSError):
                     family = socket.AF_INET
                 probe_sock.close()
-            except:
+            except Exception:
                 family = socket.AF_INET
 
             if family == socket.AF_UNIX:
