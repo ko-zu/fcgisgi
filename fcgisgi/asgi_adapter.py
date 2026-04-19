@@ -182,10 +182,7 @@ class ASGIAdapter:
 
         scope["path"] = scope["root_path"] + p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape")
 
-        # 'raw_path' is an optional ASGI field. We can only reliably extract it from
-        # REQUEST_URI when the app is mounted at the root (SCRIPT_NAME is empty),
-        # because PATH_INFO does not include the SCRIPT_NAME portion of the original URL.
-        if b"REQUEST_URI" in p and scope["root_path"] == "":
+        if b"REQUEST_URI" in p:
             scope["raw_path"] = p[b"REQUEST_URI"].split(b"?", 1)[0]
 
         # Normalize HTTP version string to follow ASGI spec (e.g., "1.1", "2", "3")

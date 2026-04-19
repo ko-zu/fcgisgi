@@ -36,7 +36,7 @@ class TestASGIScope(unittest.TestCase):
 
         self.assertEqual(scope["root_path"], "/あ.py")
         self.assertEqual(scope["path"], "/あ.py/hello 世界!")
-        self.assertNotIn("raw_path", scope)
+        self.assertEqual(scope["raw_path"], b"/%e3%81%82.py/hello%20%e4%b8%96%e7%95%8c%21")
         self.assertEqual(scope["query_string"], b"a=%e3%81%82")
 
     def test_scheme_detection(self):
