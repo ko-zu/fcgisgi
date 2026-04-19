@@ -20,6 +20,7 @@ class TestGetValues(unittest.TestCase):
             pass
 
         output = bytearray()
+
         def send_func(data):
             output.extend(data)
 
@@ -49,6 +50,7 @@ class TestGetValues(unittest.TestCase):
             return []
 
         output = bytearray()
+
         def send_func(data):
             output.extend(data)
 

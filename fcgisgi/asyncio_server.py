@@ -3,7 +3,8 @@ import signal
 import socket
 import os
 import logging
-from typing import Callable, Union, Tuple, Any
+from typing import Any
+from collections.abc import Callable
 
 from .sansio import FCGI_LISTENSOCK_FILENO
 from .asgi_adapter import ASGIAdapter
@@ -125,7 +126,7 @@ class Server:
         self.protocols = set()
         self.lifespan_state = {}
 
-    async def run(self, bind_address: Union[str, Tuple[str, int], None] = None):
+    async def run(self, bind_address: str | tuple[str, int] | None = None):
         """
         Start the FastCGI server and wait for the stop event.
 
@@ -146,7 +147,7 @@ class Server:
             try:
                 timeout = self.kwargs.get("startup_timeout", 55.0)
                 await asyncio.wait_for(self._startup_event.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("ASGI Lifespan startup timed out")
             self.startup_complete = True
 
@@ -227,7 +228,7 @@ class Server:
                 await self._lifespan_queue.put({"type": "lifespan.shutdown"})
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=shutdown_timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.error("ASGI Lifespan shutdown timed out")
 
                 # Wait for all individual request tasks and their cancellation timers
@@ -239,7 +240,7 @@ class Server:
                 if wait_tasks:
                     try:
                         await asyncio.wait_for(asyncio.gather(*wait_tasks), timeout=shutdown_timeout)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.error("ASGI tasks cleanup timed out")
 
                 if self._lifespan_task:
@@ -247,7 +248,7 @@ class Server:
             elif executor:
                 try:
                     await asyncio.wait_for(asyncio.to_thread(executor.shutdown), timeout=shutdown_timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.error("WSGI thread pool shutdown timed out")
 
     async def _run_lifespan(self):

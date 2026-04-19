@@ -3,7 +3,8 @@ import threading
 import queue
 import logging
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Any, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 from .sansio import (
     FastCGIConnection,
     RequestStarted,
@@ -84,7 +85,7 @@ class WSGIErrors:
         encoded = data.encode("utf-8", "replace")
         self.adapter.send_func(self.adapter.fcgi.send_stderr(self.request_id, encoded))
 
-    def writelines(self, lines: List[str]):
+    def writelines(self, lines: list[str]):
         for line in lines:
             self.write(line)
 
@@ -96,10 +97,10 @@ class WSGIErrors:
 class WSGIRequest:
     id: int
     stdin: "WSGIInput"
-    params: Dict[str, str] = field(default_factory=dict)
-    params_list: List[Tuple[bytes, bytes]] = field(default_factory=list)
-    thread: Optional[threading.Thread] = None
-    headers_set: Optional[Tuple[str, List[Tuple[str, str]]]] = None
+    params: dict[str, str] = field(default_factory=dict)
+    params_list: list[tuple[bytes, bytes]] = field(default_factory=list)
+    thread: threading.Thread | None = None
+    headers_set: tuple[str, list[tuple[str, str]]] | None = None
     response_started: bool = False
     aborted: bool = False
 
@@ -112,7 +113,7 @@ class WSGIAdapter:
         spawn_func: Callable,
         call_soon_func: Callable,
         on_close: Callable[[], None],
-        force_script_name: Optional[str] = None,
+        force_script_name: str | None = None,
     ):
         self.application = application
         self.send_func = send_func
@@ -120,7 +121,7 @@ class WSGIAdapter:
         self.spawn_func = spawn_func
         self.call_soon_func = call_soon_func
         self.fcgi = FastCGIConnection()
-        self._requests: Dict[int, WSGIRequest] = {}
+        self._requests: dict[int, WSGIRequest] = {}
         self._keep_conn = True
         self.force_script_name = force_script_name
 

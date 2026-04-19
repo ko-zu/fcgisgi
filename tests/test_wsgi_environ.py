@@ -98,7 +98,7 @@ class TestWSGIEnviron(unittest.TestCase):
     def test_path_encoding(self):
         # PATH_INFO should be decoded correctly (latin-1 for WSGI as per spec)
         self.adapter._requests[1] = WSGIRequest(id=1, stdin=WSGIInput())
-        utf8_path = "/テスト".encode("utf-8")
+        utf8_path = "/テスト".encode()
         quoted_path = b"/%E3%83%86%E3%82%B9%E3%83%88"
         params_event = ParamsReceived(
             1,

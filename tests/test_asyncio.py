@@ -157,7 +157,7 @@ if __name__ == "__main__":
                         response += chunk
                         if b"process-ok" in response:
                             break
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if response:
                             break
                         continue
@@ -269,7 +269,7 @@ os.execv(sys.executable, [sys.executable, {repr(app_path)}])
                         response += chunk
                         if b"fd-inheritance-ok" in response:
                             break
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if response:
                             break
                         continue

@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Callable, Dict, Any, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 from .sansio import (
     FastCGIConnection,
@@ -28,9 +29,9 @@ class DisconnectedError(OSError):
 class ASGIRequest:
     id: int
     input_queue: asyncio.Queue
-    task: Optional[asyncio.Task] = None
-    cancel_task: Optional[asyncio.Task] = None
-    scope: Optional[Dict[str, Any]] = None
+    task: asyncio.Task | None = None
+    cancel_task: asyncio.Task | None = None
+    scope: dict[str, Any] | None = None
     aborted: bool = False
     response_started: bool = False
     response_complete: bool = False
@@ -43,15 +44,15 @@ class ASGIAdapter:
         send_func: Callable[[bytes], None],
         on_close: Callable[[], None],
         startup_complete: bool = True,
-        force_script_name: Optional[str] = None,
-        lifespan_state: Optional[Dict[str, Any]] = None,
+        force_script_name: str | None = None,
+        lifespan_state: dict[str, Any] | None = None,
         shutdown_timeout: float = 55.0,
     ):
         self.app = app
         self.send_func = send_func
         self.on_close = on_close
         self.fcgi = FastCGIConnection()
-        self._requests: Dict[int, ASGIRequest] = {}
+        self._requests: dict[int, ASGIRequest] = {}
         self._keep_conn = True
         self._startup_complete = startup_complete
         self.force_script_name = force_script_name
@@ -154,7 +155,7 @@ class ASGIAdapter:
         for request_id in list(self._requests.keys()):
             self._abort_request(request_id)
 
-    def _build_scope(self, request_id: int, params: List[Tuple[bytes, bytes]]) -> Dict[str, Any]:
+    def _build_scope(self, request_id: int, params: list[tuple[bytes, bytes]]) -> dict[str, Any]:
         # Use reversed() before dict() to ensure that if duplicate keys exist for metadata
         # (like REQUEST_METHOD), the FIRST occurrence in the original params list is prioritized.
         p = dict(reversed(params))

@@ -1,6 +1,5 @@
 import struct
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
 
 # FastCGI Constants
 FCGI_LISTENSOCK_FILENO = 0
@@ -52,7 +51,7 @@ class RequestStarted:
 @dataclass
 class ParamsReceived:
     request_id: int
-    params: List[Tuple[bytes, bytes]]
+    params: list[tuple[bytes, bytes]]
 
 
 @dataclass
@@ -84,27 +83,20 @@ class AbortRequest:
 
 @dataclass
 class GetValues:
-    keys: Dict[bytes, bytes]
+    keys: dict[bytes, bytes]
 
 
-Event = Union[
-    RequestStarted,
-    ParamsReceived,
-    StdinReceived,
-    EndOfStdin,
-    DataReceived,
-    EndOfData,
-    AbortRequest,
-    GetValues,
-]
+Event = (
+    RequestStarted | ParamsReceived | StdinReceived | EndOfStdin | DataReceived | EndOfData | AbortRequest | GetValues
+)
 
 
 class FastCGIConnection:
     def __init__(self):
         self._buffer = bytearray()
-        self._requests: Dict[int, dict] = {}
+        self._requests: dict[int, dict] = {}
 
-    def feed_data(self, data: bytes) -> List[Event]:
+    def feed_data(self, data: bytes) -> list[Event]:
         self._buffer.extend(data)
         events = []
         while len(self._buffer) >= FCGI_HEADER_LEN:
@@ -125,7 +117,7 @@ class FastCGIConnection:
 
         return events
 
-    def _handle_record(self, type_: int, request_id: int, content: bytes) -> Optional[Event]:
+    def _handle_record(self, type_: int, request_id: int, content: bytes) -> Event | None:
         if type_ == FCGI_BEGIN_REQUEST:
             role, flags = struct.unpack(FCGI_BEGIN_REQUEST_BODY_FORMAT, content)
             self._requests[request_id] = {
@@ -159,7 +151,7 @@ class FastCGIConnection:
 
         return None
 
-    def _decode_pairs(self, data: bytes) -> List[Tuple[bytes, bytes]]:
+    def _decode_pairs(self, data: bytes) -> list[tuple[bytes, bytes]]:
         pairs = []
         pos = 0
         while pos < len(data):
@@ -197,7 +189,7 @@ class FastCGIConnection:
         content = struct.pack(FCGI_END_REQUEST_BODY_FORMAT, app_status, protocol_status)
         return self._encode_record(FCGI_END_REQUEST, request_id, content)
 
-    def send_get_values_result(self, values: Dict[bytes, bytes]) -> bytes:
+    def send_get_values_result(self, values: dict[bytes, bytes]) -> bytes:
         content = bytearray()
         for name, value in values.items():
             content.extend(self.encode_pair(name, value))

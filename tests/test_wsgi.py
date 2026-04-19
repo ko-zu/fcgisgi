@@ -144,7 +144,7 @@ class TestWSGIAdapter(unittest.TestCase):
         expected_header = struct.pack(FCGI_HEADER_FORMAT, 1, FCGI_STDERR, 1, 0, 0)[:3]
         self.assertIn(expected_header, self.output)
         # Check for encoded content
-        self.assertIn("こんにちは".encode("utf-8"), self.output)
+        self.assertIn("こんにちは".encode(), self.output)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ class TestASGIScope(unittest.TestCase):
         # Path with percent encoded utf-8
         params = [
             (b"REQUEST_METHOD", b"GET"),
-            (b"PATH_INFO", "/hello 世界!".encode("utf-8")),
+            (b"PATH_INFO", "/hello 世界!".encode()),
             (b"REQUEST_URI", b"/hello%20%e4%b8%96%e7%95%8c%21?a=%e3%81%82"),
             (b"QUERY_STRING", b"a=%e3%81%82"),
         ]
@@ -24,13 +24,13 @@ class TestASGIScope(unittest.TestCase):
     def test_path_decoding_with_scriptname(self):
         params = [
             (b"REQUEST_METHOD", b"GET"),
-            (b"PATH_INFO", "/hello 世界!".encode("utf-8")),
+            (b"PATH_INFO", "/hello 世界!".encode()),
             (
                 b"REQUEST_URI",
                 b"/%e3%81%82.py/hello%20%e4%b8%96%e7%95%8c%21?a=%e3%81%82",
             ),
             (b"QUERY_STRING", b"a=%e3%81%82"),
-            (b"SCRIPT_NAME", "/あ.py".encode("utf-8")),
+            (b"SCRIPT_NAME", "/あ.py".encode()),
         ]
         scope = self.adapter._build_scope(1, params)
 
