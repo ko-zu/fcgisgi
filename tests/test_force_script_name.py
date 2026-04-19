@@ -88,7 +88,7 @@ class TestForceScriptName(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(recorded_scope)
         self.assertEqual(recorded_scope["root_path"], "/myapp")
-        self.assertEqual(recorded_scope["path"], "/hello")
+        self.assertEqual(recorded_scope["path"], "/myapp/hello")
 
     def test_wsgi_force_script_name(self):
         recorded_environ = None

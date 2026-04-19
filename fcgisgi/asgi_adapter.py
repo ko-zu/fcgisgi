@@ -167,7 +167,6 @@ class ASGIAdapter:
             "type": "http",
             "asgi": {"version": "3.0", "spec_version": "2.4"},
             "method": p.get(b"REQUEST_METHOD", b"GET").decode("latin-1"),
-            "path": p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape"),
             "query_string": p.get(b"QUERY_STRING", b""),
             "scheme": p.get(b"HTTPS") in (b"on", b"1") and "https" or "http",
             "state": self.lifespan_state.copy(),
@@ -180,6 +179,8 @@ class ASGIAdapter:
             scope["root_path"] = self.force_script_name
         else:
             scope["root_path"] = p.get(b"SCRIPT_NAME", b"").decode("utf-8", "surrogateescape")
+
+        scope["path"] = scope["root_path"] + p.get(b"PATH_INFO", b"").decode("utf-8", "surrogateescape")
 
         # 'raw_path' is an optional ASGI field. We can only reliably extract it from
         # REQUEST_URI when the app is mounted at the root (SCRIPT_NAME is empty),

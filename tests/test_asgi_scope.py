@@ -35,7 +35,7 @@ class TestASGIScope(unittest.TestCase):
         scope = self.adapter._build_scope(1, params)
 
         self.assertEqual(scope["root_path"], "/あ.py")
-        self.assertEqual(scope["path"], "/hello 世界!")
+        self.assertEqual(scope["path"], "/あ.py/hello 世界!")
         self.assertNotIn("raw_path", scope)
         self.assertEqual(scope["query_string"], b"a=%e3%81%82")
 
