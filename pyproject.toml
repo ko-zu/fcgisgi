@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fcgisgi"
 license = "MIT"
-version = "0.2.1"
+version = "0.2.2"
 authors = [
   { name="ko-zu", email="causeless@gmail.com" },
 ]
